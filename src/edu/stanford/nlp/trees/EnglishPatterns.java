@@ -86,9 +86,14 @@ public class EnglishPatterns {
 
   /** A list of verbs which are verbs of speaking that easily take an S (as a complement or topicalized)
    *  which is a direct speech ccomp. For example: "He concedes: ``This is a difficult market.''"
+   * <br>
+   * TODO: maybe sign, as in ASL?  sing, kibitz ... wish?
+   * quite a few others from the NP_V_S_INF_VERBS_REGEX:
+   *   pledge, protest, bluster, bray, cackle, call, chuckle, chortle, croak, coo, crow, drawl, drone, gasp ...
+   *   signal, bellow, bleat, blubber, boom, chirp, yammer, yap
    */
   public static final String sayVerbRegex =
-    "/^(?i:say|says|said|saying|(?:add|boast|claim|counsel|explain|inform|interject|proclaim|recall|remark|report|respond|shout|whisper|yell)(?:s|ed|ing)?|(?:advis|announc|acknowledg|conced|conclud|decid|declar|inton|not|observ|stat)(?:e|es|ed|ing)|(?:confess)(?:es|ed|ing)?|(?:agree)(?:s|d|ing)?|reply|replied|replies|replying|admit|admits|admitted|admitting|hold|holds|holding|held|write|writes|writing|wrote|tell|tells|telling|told|quipped|quip|quips|quipping|think|thinks|thinking|thought)$/";
+    "/^(?i:say|says|said|saying|(?:add|boast|chant|claim|complain|counsel|explain|inform|interject|pray|proclaim|purr|recall|remark|report|respond|scream|shout|shriek|sigh|sulk|whisper|whoop|yell|yelp)(?:s|ed|ing)?|(?:advis|announc|acknowledg|conced|conclud|decid|declar|grip|grous|inton|not|observ|propos|stat|whin|whing)(?:e|es|ed|ing)|(?:bitch|confess|screech)(?:es|ed|ing)?|(?:agree)(?:s|d|ing)?|(?:cr|repl)(?:y|ied|ies|ying)|admit|admits|admitted|admitting|hold|holds|holding|held|write|writes|writing|wrote|tell|tells|telling|told|quipped|quip|quips|quipping|think|thinks|thinking|thought)$/";
 
 
   // TODO: is there some better pattern to look for? We do not have tag information at this point
