@@ -71,6 +71,14 @@ public class CoordinationTransformer implements TreeTransformer  {
     qp = new QPTreeTransformer(performMWETransformation);
   }
 
+  public void debugLine(String prefix, Tree t) {
+    if (t instanceof TreeGraphNode) {
+      log.info(prefix + ((TreeGraphNode) t).toOneLineString());
+    } else {
+      log.info(prefix + t);
+    }
+  }
+
   /**
    * Transforms t if it contains a coordination in a flat structure (CCtransform)
    * and transforms UCP (UCPtransform).
@@ -81,19 +89,19 @@ public class CoordinationTransformer implements TreeTransformer  {
   @Override
   public Tree transformTree(Tree t) {
     if (VERBOSE) {
-      log.info("Input to CoordinationTransformer: " + t);
+      debugLine("Input to CoordinationTransformer: ", t);
     }
 
     if (performMWETransformation) {
       t = gappingTransform(t);
       if (VERBOSE) {
-        log.info("After       t = gappingTransform(t);\n:  " + t);
+        debugLine("After t = gappingTransform(t);:   ", t);
       }
     }
 
     t = tn.transformTree(t);
     if (VERBOSE) {
-      log.info("After DependencyTreeTransformer:  " + t);
+      debugLine("After DependencyTreeTransformer:  ", t);
     }
     if (t == null) {
       return t;
@@ -102,61 +110,64 @@ public class CoordinationTransformer implements TreeTransformer  {
     if (performMWETransformation) {
       t = MWETransform(t);
       if (VERBOSE) {
-        log.info("After MWETransform:               " + t);
+        debugLine("After MWETransform:               ", t);
       }
 
       t = MWFlatTransform(t);
       if (VERBOSE) {
-        log.info("After MWFlatTransform:            " + t);
+        debugLine("After MWFlatTransform:            ", t);
       }
 
       t = prepCCTransform(t);
       if (VERBOSE) {
-        log.info("After prepCCTransform:               " + t);
+        debugLine("After prepCCTransform:            ", t);
       }
     }
 
     t = UCPtransform(t);
     if (VERBOSE) {
-      log.info("After UCPTransformer:             " + t);
+      debugLine("After UCPTransformer:             ", t);
     }
     t = CCtransform(t);
     if (VERBOSE) {
-      log.info("After CCTransformer:              " + t);
+      debugLine("After CCTransformer:              ", t);
     }
     t = qp.transformTree(t);
     if (VERBOSE) {
-      log.info("After QPTreeTransformer:          " + t);
+      debugLine("After QPTreeTransformer:          ", t);
     }
     t = SQflatten(t);
     if (VERBOSE) {
-      log.info("After SQ flattening:              " + t);
+      debugLine("After SQ flattening:              ", t);
     }
     t = dates.transformTree(t);
     if (VERBOSE) {
-      log.info("After DateTreeTransformer:        " + t);
+      debugLine("After DateTreeTransformer:        ", t);
     }
     t = removeXOverX(t);
     if (VERBOSE) {
-      log.info("After removeXoverX:               " + t);
+      debugLine("After removeXoverX:               ", t);
     }
     t = combineConjp(t);
     if (VERBOSE) {
-      log.info("After combineConjp:               " + t);
+      debugLine("After combineConjp:               ", t);
     }
     t = moveRB(t);
     if (VERBOSE) {
-      log.info("After moveRB:                     " + t);
+      debugLine("After moveRB:                     ", t);
     }
     t = changeSbarToPP(t);
     if (VERBOSE) {
-      log.info("After changeSbarToPP:             " + t);
+      debugLine("After changeSbarToPP:             ", t);
     }
     t = rearrangeNowThat(t);
     if (VERBOSE) {
-      log.info("After rearrangeNowThat:           " + t);
+      debugLine("After rearrangeNowThat:           ", t);
     }
-
+    t = mergeYodaVerbs(t);
+    if (VERBOSE) {
+      debugLine("After mergeYodaVerbs:             ", t);
+    }
     return t;
   }
 
@@ -173,6 +184,23 @@ public class CoordinationTransformer implements TreeTransformer  {
     return Tsurgeon.processPattern(rearrangeNowThatTregex, rearrangeNowThatTsurgeon, t);
   }
 
+
+  private static final TregexPattern mergeYodaVerbsTregex =
+    TregexPattern.compile("VP=home < VBN=vbn $+ (VP=willbe <... {(__=will < will|have|has) ; (VP < (__=be << be|been))})");
+
+  private static final TsurgeonPattern mergeYodaVerbsTsurgeon =
+    Tsurgeon.parseOperation("[createSubtree VP vbn] [move will >-1 home] [move be >-1 home] [prune willbe]");
+
+  /**
+   * Text such as "Also excluded will be ---" should have similar dependencies to "--- also will be excluded".
+   * Rearranging the verbs with these tsurgeon makes the headfinder more accurate on that type of sentence.
+   */
+  private static Tree mergeYodaVerbs(Tree t) {
+    if (t == null) {
+      return t;
+    }
+    return Tsurgeon.processPattern(mergeYodaVerbsTregex, mergeYodaVerbsTsurgeon, t);
+  }
 
   private static final TregexPattern changeSbarToPPTregex =
     TregexPattern.compile("NP < (NP $++ (SBAR=sbar < (IN < /^(?i:after|before|until|since|during)$/ $++ S)))");
@@ -704,6 +732,13 @@ public class CoordinationTransformer implements TreeTransformer  {
   private static final TregexPattern BUT_ALSO_PATTERN = TregexPattern.compile("CONJP=conjp < (CC=cc < but) < (RB=rb < also) ?$+ (__=nextNode < (__ < __))");
   private static final TsurgeonPattern BUT_ALSO_OPERATION = Tsurgeon.parseOperation("[move cc $- conjp] [move rb $- cc] [if exists nextNode move rb >1 nextNode] [createSubtree ADVP rb] [delete conjp]");
 
+  /*
+   * "not only" is not a MWE, so break up the CONJP similar to "but also".
+   * compensate for some JJ tagged "only" in this expression
+   */
+  private static final TregexPattern NOT_ONLY_PATTERN = TregexPattern.compile("CONJP|ADVP=conjp < (RB=not < /^(?i)not$/) < (RB|JJ=only < /^(?i)only|just|merely|even$/) ?$+ (__=nextNode < (__ < __))");
+  private static final TsurgeonPattern NOT_ONLY_OPERATION = Tsurgeon.parseOperation("[move not $- conjp] [move only $- not] [if exists nextNode move only >1 nextNode] [if exists nextNode move not >1 nextNode] [createSubtree ADVP not] [createSubtree ADVP only] [delete conjp]");
+
   /* at least / at most / at best / at worst / ... should be treated as if "at"
      was a preposition and the RBS was a noun. Assumes that the MWE "at least"
      has already been extracted. */
@@ -725,6 +760,7 @@ public class CoordinationTransformer implements TreeTransformer  {
     
     Tsurgeon.processPattern(ACCORDING_TO_PATTERN, ACCORDING_TO_OPERATION, t);
     Tsurgeon.processPattern(BUT_ALSO_PATTERN, BUT_ALSO_OPERATION, t);
+    Tsurgeon.processPattern(NOT_ONLY_PATTERN, NOT_ONLY_OPERATION, t);
     Tsurgeon.processPattern(AT_RBS_PATTERN, AT_RBS_OPERATION, t);
     Tsurgeon.processPattern(AT_ALL_PATTERN, AT_ALL_OPERATION, t);
 

@@ -3,16 +3,19 @@ package edu.stanford.nlp.semgraph.semgrex;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import edu.stanford.nlp.ling.AnnotationLookup;
 import edu.stanford.nlp.ling.IndexedWord;
 import edu.stanford.nlp.semgraph.SemanticGraph;
 import edu.stanford.nlp.semgraph.SemanticGraphEdge;
 import edu.stanford.nlp.util.Pair;
+import edu.stanford.nlp.util.Quadruple;
+import edu.stanford.nlp.util.Triple;
+import edu.stanford.nlp.util.VariableStrings;
 import edu.stanford.nlp.util.logging.Redwood;
 
 public class NodePattern extends SemgrexPattern  {
@@ -25,15 +28,21 @@ public class NodePattern extends SemgrexPattern  {
   private final GraphRelation reln;
   private final boolean negDesc;
   /**
-   *  A hash map from a key to a pair (case_sensitive_pattern, case_insensitive_pattern)
+   *  A list of Attribute - key, case_sensitive_pattern, case_insensitive_pattern, negated
+   *
    *  If the type of the entry is a String, then string comparison is safe.
-   *  If the type is a Boolean, it will always either match or not match corresponding to the Boolean
-   *  value.
+   *  If the type is a Boolean, it will always either match or not match corresponding to the Boolean value.
    *  Otherwise, the type will be a Pattern, and you must use Pattern.matches().
    */
-  private final Map<String, Pair<Object, Object>> attributes;
+  private final List<Attribute> attributes;
+  /**
+   * Attributes which represent Maps (eg CoNLLUFeats)
+   * and only partial matches are necessary
+   */
+  private final List<Pair<String, Attribute>> partialAttributes;
+  private final List<RegexPartialAttribute> regexPartialAttributes;
   private final boolean isRoot;
-  private boolean isLink;
+  private final boolean isLink;
   private final boolean isEmpty;
   private final String name;
   private String descString;
@@ -43,77 +52,92 @@ public class NodePattern extends SemgrexPattern  {
   private List<Pair<Integer, String>> variableGroups;
 
   public NodePattern(GraphRelation r, boolean negDesc,
-                     Map<String, String> attrs,
-                     boolean root, boolean empty, String name) {
-    this(r, negDesc, attrs, root, empty, name,
+                     NodeAttributes attrs, boolean isLink, String name) {
+    this(r, negDesc, attrs, isLink, name,
             new ArrayList<>(0));
   }
 
   // TODO: there is no capacity for named variable groups in the parser right now
   public NodePattern(GraphRelation r, boolean negDesc,
-                     Map<String, String> attrs,
-                     boolean root, boolean empty, String name,
+                     NodeAttributes attrs, boolean isLink, String name,
                      List<Pair<Integer, String>> variableGroups) {
     this.reln = r;
     this.negDesc = negDesc;
+    this.isLink = isLink;
     // order the attributes so that the pattern stays the same when
     // printing a compiled pattern
-    attributes = new LinkedHashMap<>();
+    this.attributes = new ArrayList<>();
+    // same with partial attributes
+    this.partialAttributes = new ArrayList<>();
+    this.regexPartialAttributes = new ArrayList<>();
+
     descString = "{";
-    for (Map.Entry<String, String> entry : attrs.entrySet()) {
+    for (Triple<String, String, Boolean> entry : attrs.attributes()) {
       if (!descString.equals("{"))
         descString += ";";
-      String key = entry.getKey();
-      String value = entry.getValue();
+      String key = entry.first();
+      String value = entry.second();
+      boolean negated = entry.third();
 
       // Add the attributes for this key
       if (value.equals("__")) {
-        attributes.put(key, Pair.makePair(true, true));
+        attributes.add(new Attribute(key, true, true, negated));
       } else if (value.matches("/.*/")) {
-        boolean isRegexp = false;
-        for (int i = 1; i < value.length() - 1; ++i) {
-          char chr = value.charAt(i);
-          if ( !( (chr >= 'A' && chr <= 'Z') || (chr >= 'a' && chr <= 'z') || (chr >= '0' && chr <= '9') ) ) {
-            isRegexp = true;
-            break;
-          }
-        }
-        String patternContent = value.substring(1, value.length() - 1);
-        if (isRegexp) {
-          attributes.put(key, Pair.makePair(
-              Pattern.compile(patternContent),
-              Pattern.compile(patternContent, Pattern.CASE_INSENSITIVE|Pattern.UNICODE_CASE))
-          );
-        } else {
-          attributes.put(key, Pair.makePair(patternContent, patternContent));
-        }
+        attributes.add(buildRegexAttribute(key, value, negated));
       } else { // raw description
-        attributes.put(key, Pair.makePair(value, value));
+        attributes.add(new Attribute(key, value, value, negated));
       }
 
-
-
-//      if (value.equals("__")) {
-//        attributes.put(key, Pair.makePair(Pattern.compile(".*"), Pattern.compile(".*", Pattern.CASE_INSENSITIVE)));
-//      } else if (value.matches("/.*/")) {
-//        attributes.put(key, Pair.makePair(
-//            Pattern.compile(value.substring(1, value.length() - 1)),
-//            Pattern.compile(value.substring(1, value.length() - 1), Pattern.CASE_INSENSITIVE))
-//        );
-//      } else { // raw description
-//        attributes.put(key, Pair.makePair(
-//            Pattern.compile("^(" + value + ")$"),
-//            Pattern.compile("^(" + value + ")$", Pattern.CASE_INSENSITIVE))
-//        );
-//      }
-      descString += (key + ':' + value);
+      if (negated) {
+        descString += (key + "!:" + value);
+      } else {
+        descString += (key + ':' + value);
+      }
     }
-    if (root) {
+
+    for (Quadruple<String, String, String, Boolean> entry : attrs.contains()) {
+      String annotation = entry.first();
+      String key = entry.second();
+      String value = entry.third();
+      boolean negated = entry.fourth();
+
+      Class<?> clazz = AnnotationLookup.getValueType(AnnotationLookup.toCoreKey(annotation));
+      boolean isMap = clazz != null && Map.class.isAssignableFrom(clazz);
+      if (!isMap) {
+        throw new SemgrexParseException("Cannot process a single key/value from annotation " + annotation + " as it is not a Map"); 
+      }
+
+      final Attribute attr;
+      if (key.equals("__")) {
+        regexPartialAttributes.add(new RegexPartialAttribute(annotation, "/.*/", value, negated));
+      } else if (key.matches("/.*/")) {
+        regexPartialAttributes.add(new RegexPartialAttribute(annotation, key, value, negated));
+      } else {
+        // Add the attributes for this key
+        if (value.equals("__")) {
+          attr = new Attribute(key, true, true, negated);
+        } else if (value.matches("/.*/")) {
+          attr = buildRegexAttribute(key, value, negated);
+        } else { // raw description
+          attr = new Attribute(key, value, value, negated);
+        }
+        partialAttributes.add(new Pair<>(annotation, attr));
+      }
+
+      if (!descString.equals("{"))
+        descString += ";";
+      String separator = negated ? "!:" : ":";
+      // TODO: the descString might look nicer if multiple contains
+      // for the same attribute were collapsed into the same map
+      descString += (annotation + ":{" + key + ":" + value + "}");
+    }
+
+    if (attrs.root()) {
       if (!descString.equals("{"))
         descString += ";";
       descString += "$";
     }
-    if (empty) {
+    if (attrs.empty()) {
       if (!descString.equals("{"))
         descString += ";";
       descString += "#";
@@ -122,10 +146,63 @@ public class NodePattern extends SemgrexPattern  {
 
     this.name = name;
     this.child = null;
-    this.isRoot = root;
-    this.isEmpty = empty;
+    this.isRoot = attrs.root();
+    this.isEmpty = attrs.empty();
 
     this.variableGroups = Collections.unmodifiableList(variableGroups);
+  }
+
+  /**
+   * Tests the value to see if it's really a regex, or just a string wrapped in regex.
+   * Return an Attribute which matches this expression
+   */
+  private Attribute buildRegexAttribute(String key, String value, boolean negated) {
+    boolean isRegexp = false;
+    for (int i = 1; i < value.length() - 1; ++i) {
+      char chr = value.charAt(i);
+      if ( !( (chr >= 'A' && chr <= 'Z') || (chr >= 'a' && chr <= 'z') || (chr >= '0' && chr <= '9') ) ) {
+        isRegexp = true;
+        break;
+      }
+    }
+    String patternContent = value.substring(1, value.length() - 1);
+    if (isRegexp) {
+      return new Attribute(key,
+                           Pattern.compile(patternContent),
+                           Pattern.compile(patternContent, Pattern.CASE_INSENSITIVE|Pattern.UNICODE_CASE),
+                           negated);
+    } else {
+      return new Attribute(key, patternContent, patternContent, negated);
+    }
+  }
+
+  private boolean checkMatch(Attribute attr, boolean ignoreCase, String nodeValue) {
+    if (nodeValue == null) {
+      // treat non-existent attributes has having matched a negated expression
+      // so for example, `cpos!:NUM` matches not having a cpos at all
+      return attr.negated;
+    }
+
+    // Get the node pattern
+    Object toMatch = ignoreCase ? attr.caseless : attr.cased;
+    boolean matches;
+    if (toMatch instanceof Boolean) {
+      matches = ((Boolean) toMatch);
+    } else if (toMatch instanceof String) {
+      if (ignoreCase) {
+        matches = nodeValue.equalsIgnoreCase(toMatch.toString());
+      } else {
+        matches = nodeValue.equals(toMatch.toString());
+      }
+    } else if (toMatch instanceof Pattern) {
+      matches = ((Pattern) toMatch).matcher(nodeValue).matches();
+    } else {
+      throw new IllegalStateException("Unknown matcher type: " + toMatch + " (of class + " + toMatch.getClass() + ")");
+    }
+    if (attr.negated) {
+      matches = !matches;
+    }
+    return matches;
   }
 
   @SuppressWarnings("unchecked")
@@ -144,8 +221,8 @@ public class NodePattern extends SemgrexPattern  {
       return (negDesc ? !node.equals(IndexedWord.NO_WORD) : node.equals(IndexedWord.NO_WORD));
 
     // log.info("Attributes are: " + attributes);
-    for (Map.Entry<String, Pair<Object, Object>> attr : attributes.entrySet()) {
-      String key = attr.getKey();
+    for (Attribute attr : attributes) {
+      String key = attr.key;
       // System.out.println(key);
       String nodeValue;
       // if (key.equals("idx"))
@@ -162,39 +239,58 @@ public class NodePattern extends SemgrexPattern  {
         nodeValue = value.toString();
       // }
       // System.out.println(nodeValue);
-      if (nodeValue == null)
-        return negDesc;
 
-      // Get the node pattern
-      Object toMatch = ignoreCase ? attr.getValue().second : attr.getValue().first;
-      boolean matches;
-      if (toMatch instanceof Boolean) {
-        matches = ((Boolean) toMatch);
-      } else if (toMatch instanceof String) {
-        if (ignoreCase) {
-          matches = nodeValue.equalsIgnoreCase(toMatch.toString());
-        } else {
-          matches = nodeValue.equals(toMatch.toString());
-        }
-      } else if (toMatch instanceof Pattern) {
-        matches = ((Pattern) toMatch).matcher(nodeValue).matches();
-      } else {
-        throw new IllegalStateException("Unknown matcher type: " + toMatch + " (of class + " + toMatch.getClass() + ")");
-      }
-
+      boolean matches = checkMatch(attr, ignoreCase, nodeValue);
       if (!matches) {
         // System.out.println("doesn't match");
         // System.out.println("");
         return negDesc;
       }
     }
+    for (Pair<String, Attribute> partialAttribute : partialAttributes) {
+      String annotation = partialAttribute.first();
+      Attribute attr = partialAttribute.second();
+
+      Class clazz = Env.lookupAnnotationKey(env, annotation);
+      Object rawmap = node.get(clazz);
+      final String nodeValue;
+      if (rawmap == null) {
+        nodeValue = null;
+      } else {
+        if (!(rawmap instanceof Map))
+          throw new RuntimeException("Can only use partial attributes with Maps... this should have been checked at creation time!");
+        Map<String, ?> map = (Map) rawmap;
+
+        // TODO: allow for regex match on the keys?
+        Object value = map.get(attr.key);
+        nodeValue = (value == null) ? null : value.toString();
+      }
+
+      boolean matches = checkMatch(attr, ignoreCase, nodeValue);
+      if (!matches) {
+        return negDesc;
+      }
+    }
+    for (RegexPartialAttribute partialAttribute : regexPartialAttributes) {
+      Class clazz = Env.lookupAnnotationKey(env, partialAttribute.annotation);
+      Object rawmap = node.get(clazz);
+      final Map<?, ?> map;
+      if (rawmap == null) {
+        map = null;
+      } else {
+        if (!(rawmap instanceof Map))
+          throw new RuntimeException("Can only use partial attributes with Maps... this should have been checked at creation time!");
+        map = (Map) rawmap;
+      }
+      boolean matches = partialAttribute.checkMatches(map, ignoreCase);
+      if (!matches) {
+        return negDesc;
+      }
+    }
+
     // System.out.println("matches");
     // System.out.println("");
     return !negDesc;
-  }
-
-  public void makeLink() {
-    isLink = true;
   }
 
   public boolean isRoot() {

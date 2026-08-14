@@ -373,6 +373,20 @@ public class CoreAnnotations {
   }
 
   /**
+   * This represents a list of the empty words.  We can attach to the
+   * Sentence CoreMap when reading CoNLLU files with such empty words
+   * <br>
+   * See the desctiption of EmptyIndexAnnotation for more explanation
+   * of when this is relevant
+   */
+  public static class EmptyTokensAnnotation implements CoreAnnotation<List<CoreLabel>> {
+    @Override
+    public Class<List<CoreLabel>> getType() {
+      return ErasureUtils.uncheckedCast(List.class);
+    }
+  }
+
+  /**
    * This indexes the beginning of a span of words, e.g., a constituent in a
    * tree. See {@link edu.stanford.nlp.trees.Tree#indexSpans(int)}.
    * This annotation counts tokens.
@@ -509,6 +523,16 @@ public class CoreAnnotations {
   }
 
   /**
+   * Comments on the sentence, such as the ones attached to CoNLLU sentences
+   */
+  public static class CommentsAnnotation implements CoreAnnotation<List<String>> {
+    @Override
+    public Class<List<String>> getType() {
+      return ErasureUtils.uncheckedCast(List.class);
+    }
+  }
+
+  /**
    * CoNLL dep parsing - coarser POS tags.
    */
   public static class CoarseTagAnnotation implements CoreAnnotation<String> {
@@ -580,7 +604,7 @@ public class CoreAnnotations {
   }
 
   /**
-   * CoNLL-U dep parsing - List of morphological features
+   * CoNLL-U dep parsing - Map of morphological features
    */
   public static class CoNLLUFeats implements CoreAnnotation<CoNLLUFeatures> {
     @Override

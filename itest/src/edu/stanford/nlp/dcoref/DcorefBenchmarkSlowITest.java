@@ -6,6 +6,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.StringReader;
+import java.util.List;
 import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -31,7 +32,7 @@ import edu.stanford.nlp.util.StringUtils;
  */
 public class DcorefBenchmarkSlowITest {
 
-  private static String runCorefTest(boolean deleteOnExit) throws Exception {
+  private static Counter<String> runCorefTest(boolean deleteOnExit) throws Exception {
     final File WORK_DIR_FILE = File.createTempFile("DcorefBenchmarkTest", "");
     if ( ! (WORK_DIR_FILE.delete() && WORK_DIR_FILE.mkdir())) {
       throw new RuntimeIOException("Couldn't create temp directory " + WORK_DIR_FILE);
@@ -49,18 +50,17 @@ public class DcorefBenchmarkSlowITest {
     System.err.println("Current dir using System:" +currentDir);
 
     String[] corefArgs = { "-props", "edu/stanford/nlp/dcoref/coref.properties",
-            '-' + Constants.LOG_PROP, baseLogFile,
-            '-' + Constants.CONLL_OUTPUT_PROP, WORK_DIR_FILE.toString() };
+                           '-' + Constants.LOG_PROP, baseLogFile,
+                           '-' + Constants.CONLL_OUTPUT_PROP, WORK_DIR_FILE.toString() };
 
     Properties props = StringUtils.argsToProperties(corefArgs);
-    System.err.println("Running dcoref with properties:");
-    System.err.println(props);
+    System.err.println("Running dcoref with properties:\n" + props);
 
     String logFile = SieveCoreferenceSystem.initializeAndRunCoref(props);
-    System.err.println(logFile);
+    System.err.println("LOG FILE: " + logFile);
 
     String actualResults = IOUtils.slurpFile(logFile);
-    return actualResults;
+    return getCorefResults(actualResults);
   }
 
 
@@ -131,13 +131,21 @@ public class DcorefBenchmarkSlowITest {
       }
     }
 
+    if (results.keySet().isEmpty()) {
+      List<String> lines = StringUtils.split(resultsString, "\\R");
+      int start = Math.max(0, lines.size() - 20);
+      lines = lines.subList(start, lines.size());
+      String tail = StringUtils.join(lines, "\n");
+      throw new RuntimeException("Coref output did not have any results in it!  The end of the log is as follows:\n" + tail);
+    }
+
     return results;
   }
 
 
   @Test
   public void testDcoref() throws Exception {
-    Counter<String> results = getCorefResults(runCorefTest(true));
+    Counter<String> results = runCorefTest(true);
 
     Counter<String> lowResults = new ClassicCounter<>();
     Counter<String> highResults = new ClassicCounter<>();

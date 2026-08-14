@@ -2,20 +2,27 @@ package edu.stanford.nlp.semgraph.semgrex;
 
 import java.io.*;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import edu.stanford.nlp.semgraph.SemanticGraph;
+import edu.stanford.nlp.semgraph.SemanticGraphCoreAnnotations;
 import edu.stanford.nlp.semgraph.SemanticGraphEdge;
 import edu.stanford.nlp.semgraph.SemanticGraphFactory;
 import edu.stanford.nlp.io.IOUtils;
 import edu.stanford.nlp.ling.*;
-import edu.stanford.nlp.trees.ud.CoNLLUDocumentReader;
+import edu.stanford.nlp.pipeline.Annotation;
+import edu.stanford.nlp.pipeline.CoNLLUReader;
 import edu.stanford.nlp.trees.GrammaticalStructure;
 import edu.stanford.nlp.trees.MemoryTreebank;
 import edu.stanford.nlp.trees.Tree;
 import edu.stanford.nlp.trees.TreeNormalizer;
+import edu.stanford.nlp.trees.ud.CoNLLUDocumentWriter;
+import edu.stanford.nlp.util.ArrayCoreMap;
+import edu.stanford.nlp.util.CoreMap;
 import edu.stanford.nlp.util.Generics;
 import edu.stanford.nlp.util.Pair;
 import edu.stanford.nlp.util.StringUtils;
+import edu.stanford.nlp.util.VariableStrings;
 import edu.stanford.nlp.util.logging.Redwood;
 
 /**
@@ -53,6 +60,16 @@ import edu.stanford.nlp.util.logging.Redwood;
  * The special case of an empty text can be tested for with an empty regex.
  * For example, words marked with {@code SpaceAfter=no} will have a blank {@code after} attribute.
  * {@code {after://}} will search for this.
+ * <br>
+ * It is now also possible to negate individual attributes in Semgrex with {@code !:}
+ * For example, this expression will search for a NOUN which is not "boy":
+ * {@code {lemma!:boy;pos:NOUN}}
+ * <br>
+ * Attributes which are maps, in particular the morphological
+ * features, can be searched by writing a map, such as
+ * {@code {morphofeatures:{Tense:Past;Person!:3}}}
+ * This expression will
+ * search for words which are past tense but are not in 3rd person.
  * <h3>Relations</h3>
  *
  * Relations are defined by a symbol representing the type of relationship and a
@@ -70,6 +87,7 @@ import edu.stanford.nlp.util.logging.Redwood;
  * <tr><td>A &gt;&gt;reln B <td>A is the governor of a relation reln in a chain to B following {@code gov->dep} paths
  * <tr><td>{@code A x,y<<reln B} <td>A is the dependent of a relation reln in a chain to B following {@code dep->gov} paths between distances of x and y
  * <tr><td>{@code A x,y>>reln B} <td>A is the governor of a relation reln in a chain to B following {@code gov->dep} paths between distances of x and y
+ * <tr><td>A &lt;&gt;reln B <td> A is connected (either dependent or governor) via relation reln with B
  * <tr><td>A == B <td>A and B are the same nodes in the same graph
  * <tr><td>A . B <td>A immediately precedes B, i.e. A.index() == B.index() - 1
  * <tr><td>A - B <td>A immediately succeeds B, i.e. A.index() == B.index() + 1
@@ -175,6 +193,15 @@ import edu.stanford.nlp.util.logging.Redwood;
  * {@code Y} and there are two paths to {@code Y}, one of
  * which goes through a {@code dobj} and one of which goes
  * through a {@code mod}.
+ *</p><p>
+ * There is also a new operation, {@code uniq}, which allows for a query to reduce to only one match:
+ *<br>
+ * {@code {} >dobj ({} > {}=foo) >mod ({} > {}=foo) :: uniq}
+ *<br>
+ * This operation also takes a list of nodes, which if supplied, will use the values of those nodes
+ * as keys for the uniq.  In the above example, this variation will match once per observed value of {@code foo}:
+ *<br>
+ * {@code {} >dobj ({} > {}=foo) >mod ({} > {}=foo) :: uniq foo}
  *
  * <h3>Naming relations</h3>
  *
@@ -317,6 +344,50 @@ public abstract class SemgrexPattern implements Serializable  {
     return matcher(hypGraph, alignment, txtGraph, true, hypGraph.getFirstRoot(), new LinkedHashMap<>(), new LinkedHashMap<>(), new LinkedHashMap<>(), new VariableStrings(), ignoreCase);
   }
 
+  // batch processing
+  // -------------------------------------------------------------
+  /**
+   * Postprocess a set of results from the batch processing method
+   *
+   * TODO: make abstract
+   */
+  public List<Pair<CoreMap, List<SemgrexMatch>>> postprocessMatches(List<Pair<CoreMap, List<SemgrexMatch>>> matches, boolean keepEmptyMatches) {
+    return matches;
+  }
+
+  /**
+   * Returns a list of matching sentences and each of the matches from those sentences.
+   *<br>
+   * Non-matching sentences are currently not returned (may change in the future to return an empty list).
+   */
+  public List<Pair<CoreMap, List<SemgrexMatch>>> matchSentences(List<CoreMap> sentences, boolean keepEmptyMatches) {
+    List<Pair<CoreMap, List<SemgrexMatch>>> matches = new ArrayList<>();
+    for (CoreMap sentence : sentences) {
+      SemanticGraph graph = sentence.get(SemanticGraphCoreAnnotations.BasicDependenciesAnnotation.class);
+      SemanticGraph enhanced = sentence.get(SemanticGraphCoreAnnotations.EnhancedDependenciesAnnotation.class);
+      SemgrexMatcher matcher = matcher(graph);
+      if (!matcher.find()) {
+        if (keepEmptyMatches) {
+          matches.add(new Pair<>(sentence, new ArrayList<>()));
+        }
+        continue;
+      }
+      matches.add(new Pair<>(sentence, new ArrayList<>()));
+      boolean found = true;
+      while (found) {
+        matches.get(matches.size() - 1).second().add(new SemgrexMatch(this, matcher));
+        found = matcher.find();
+      }
+    }
+
+    for (SemgrexPattern child : getChildren()) {
+      matches = child.postprocessMatches(matches, keepEmptyMatches);
+    }
+    matches = postprocessMatches(matches, keepEmptyMatches);
+
+    return matches;
+  }
+
   // compile method
   // -------------------------------------------------------------
 
@@ -422,9 +493,9 @@ public abstract class SemgrexPattern implements Serializable  {
 
   public enum OutputFormat {
     LIST,
-    OFFSET
+    OFFSET,
+    CONLLU
   }
-
 
   private static final String PATTERN = "-pattern";
   private static final String TREE_FILE = "-treeFile";
@@ -471,12 +542,17 @@ public abstract class SemgrexPattern implements Serializable  {
     Map<String, String[]> argsMap = StringUtils.argsToMap(args, flagMap);
     // args = argsMap.get(null);
 
-    // TODO: allow patterns to be extracted from a file
     if (!(argsMap.containsKey(PATTERN)) || argsMap.get(PATTERN).length == 0) {
       help();
       System.exit(2);
     }
-    SemgrexPattern semgrex = SemgrexPattern.compile(argsMap.get(PATTERN)[0]);
+    SemgrexPattern semgrex;
+    try {
+      String pattern = IOUtils.slurpFile(argsMap.get(PATTERN)[0]);
+      semgrex = SemgrexPattern.compile(pattern);
+    } catch(IOException e) {
+      semgrex = SemgrexPattern.compile(argsMap.get(PATTERN)[0]);
+    }
 
     String modeString = DEFAULT_MODE;
     if (argsMap.containsKey(MODE) && argsMap.get(MODE).length > 0) {
@@ -495,8 +571,7 @@ public abstract class SemgrexPattern implements Serializable  {
       useExtras = Boolean.parseBoolean(argsMap.get(EXTRAS)[0]);
     }
 
-    List<SemanticGraph> graphs = Generics.newArrayList();
-    // TODO: allow other sources of graphs, such as dependency files
+    List<CoreMap> sentences = new ArrayList<>();
     if (argsMap.containsKey(TREE_FILE) && argsMap.get(TREE_FILE).length > 0) {
       for (String treeFile : argsMap.get(TREE_FILE)) {
         log.info("Loading file " + treeFile);
@@ -506,35 +581,50 @@ public abstract class SemgrexPattern implements Serializable  {
           // TODO: allow other languages... this defaults to English
           SemanticGraph graph = SemanticGraphFactory.makeFromTree(tree, mode, useExtras ?
                   GrammaticalStructure.Extras.MAXIMAL : GrammaticalStructure.Extras.NONE);
-          graphs.add(graph);
+          CoreMap sentence = new ArrayCoreMap();
+          sentence.set(SemanticGraphCoreAnnotations.BasicDependenciesAnnotation.class, graph);
+          List<CoreLabel> tokens = graph.vertexListSorted().stream().map(x -> x.backingLabel()).collect(Collectors.toList());
+          sentence.set(CoreAnnotations.TokensAnnotation.class, tokens);
+          sentences.add(sentence);
         }
       }
     }
 
     if (argsMap.containsKey(CONLLU_FILE) && argsMap.get(CONLLU_FILE).length > 0) {
-      CoNLLUDocumentReader reader = new CoNLLUDocumentReader();
-      for (String conlluFile : argsMap.get(CONLLU_FILE)) {
-        log.info("Loading file " + conlluFile);
-        Iterator<Pair<SemanticGraph,SemanticGraph>> it = reader.getIterator(IOUtils.readerFromString(conlluFile));
-
-        while (it.hasNext()) {
-          SemanticGraph graph = it.next().first;
-          graphs.add(graph);
+      try {
+        CoNLLUReader reader = new CoNLLUReader();
+        for (String conlluPath : argsMap.get(CONLLU_FILE)) {
+          File file = new File(conlluPath);
+          List<File> filenames;
+          if (file.isFile()) {
+            filenames = Collections.singletonList(file);
+          } else {
+            filenames = Arrays.asList(file.listFiles());
+          }
+          for (File conlluFile : filenames) {
+            log.info("Loading file " + conlluFile);
+            List<Annotation> docs = reader.readCoNLLUFile(conlluFile.toString());
+            for (Annotation doc : docs) {
+              sentences.addAll(doc.get(CoreAnnotations.SentencesAnnotation.class));
+            }
+          }
         }
+      } catch (ClassNotFoundException e) {
+        throw new RuntimeException(e);
       }
     }
 
-    for (SemanticGraph graph : graphs) {
-      SemgrexMatcher matcher = semgrex.matcher(graph);
-      if ( ! matcher.find()) {
-        continue;
-      }
+    List<Pair<CoreMap, List<SemgrexMatch>>> matches = semgrex.matchSentences(sentences, false);
 
+    for (Pair<CoreMap, List<SemgrexMatch>> sentenceMatches : matches) {
+      CoreMap sentence = sentenceMatches.first();
+      SemanticGraph graph = sentence.get(SemanticGraphCoreAnnotations.BasicDependenciesAnnotation.class);
+      SemanticGraph enhanced = sentence.get(SemanticGraphCoreAnnotations.EnhancedDependenciesAnnotation.class);
       if (outputFormat == OutputFormat.LIST) {
         log.info("Matched graph:" + System.lineSeparator() + graph.toString(SemanticGraph.OutputFormat.LIST));
-        int i = 1;
-        boolean found = true;
-        while (found) {
+        int i = 0;
+        for (SemgrexMatch matcher : sentenceMatches.second()) {
+          i++;
           log.info("Match " + i + " at: " + matcher.getMatch().toString(CoreLabel.OutputFormat.VALUE_INDEX));
           List<String> nodeNames = Generics.newArrayList();
           nodeNames.addAll(matcher.getNodeNames());
@@ -542,8 +632,6 @@ public abstract class SemgrexPattern implements Serializable  {
           for (String name : nodeNames) {
             log.info("  " + name + ": " + matcher.getNode(name).toString(CoreLabel.OutputFormat.VALUE_INDEX));
           }
-          log.info(" ");
-          found = matcher.find();
         }
       } else if (outputFormat == OutputFormat.OFFSET) {
         if (graph.vertexListSorted().isEmpty()) {
@@ -551,6 +639,31 @@ public abstract class SemgrexPattern implements Serializable  {
         }
         System.out.printf("+%d %s%n", graph.vertexListSorted().get(0).get(CoreAnnotations.LineNumberAnnotation.class),
             argsMap.get(CONLLU_FILE)[0]);
+      } else if (outputFormat == OutputFormat.CONLLU) {
+        CoNLLUDocumentWriter writer = new CoNLLUDocumentWriter();
+        String semgrexName = semgrex.toString().trim();
+        List<String> comments = new ArrayList<>(sentence.get(CoreAnnotations.CommentsAnnotation.class));
+        // TODO: maybe stop putting comments on the graphs?
+        if (comments.size() == 0) {
+          comments.addAll(graph.getComments());
+        }
+        for (SemgrexMatch matcher : sentenceMatches.second()) {
+          StringBuilder comment = new StringBuilder();
+          comment.append("# semgrex pattern |" + semgrexName + "| matched at " + matcher.getMatch().toString(CoreLabel.OutputFormat.VALUE_INDEX));
+
+          List<String> nodeNames = new ArrayList<>();
+          nodeNames.addAll(matcher.getNodeNames());
+          Collections.sort(nodeNames);
+          for (String name : nodeNames) {
+            comment.append("  ");
+            comment.append(name);
+            comment.append(":");
+            comment.append(matcher.getNode(name).toString(CoreLabel.OutputFormat.VALUE_INDEX));
+          }
+          comments.add(comment.toString());
+        }
+        String output = writer.printSemanticGraph(graph, enhanced, false, comments);
+        System.out.print(output);
       }
     }
   }

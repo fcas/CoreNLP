@@ -1133,6 +1133,85 @@ public class SsurgeonTest {
     assertEquals(".prof", prof.lemma());
   }
 
+  /**
+   * Test merging three nodes at once
+   *<br>
+   * The indices should be changed as well
+   */
+  @Test
+  public void readXMLMergeNodesMultiple() {
+    Ssurgeon inst = Ssurgeon.inst();
+
+    // Test the head word being the first word
+    String merge = String.join(newline,
+                               "<ssurgeon-pattern-list>",
+                               "  <ssurgeon-pattern>",
+                               "    <uid>38</uid>",
+                               "    <notes>Merge three nodes that should not have been split</notes>",
+                               "    <semgrex>" + XMLUtils.escapeXML("{word:prof}=source >punct ({}=punct . {} !> {}) >nmod ({}=nmod !> {})") + "</semgrex>",
+                               "    <edit-list>mergeNodes -node source -node punct -node nmod</edit-list>",
+                               "  </ssurgeon-pattern>",
+                               "</ssurgeon-pattern-list>");
+    List<SsurgeonPattern> patterns = inst.readFromString(merge);
+    assertEquals(patterns.size(), 1);
+    SsurgeonPattern mergeSsurgeon = patterns.get(0);
+
+    // nodes 3, 4, 5 are in order in the same unit, so we should be able to merge them
+    SemanticGraph sg = SemanticGraph.valueOf("[fare-7 aux> potrebbe-6 nsubj> [prof-3 det> Il-2 punct> .-4 nmod> Fotticchia-5] obj> [gag-9 det> una-8] obl> [situazione-12 case> su-10 det> la-11]]", Language.UniversalEnglish);
+    SemanticGraph expected = SemanticGraph.valueOf("[fare-5 aux> potrebbe-4 nsubj> [prof.Fotticchia-3 det> Il-2] obj> [gag-7 det> una-6] obl> [situazione-10 case> su-8 det> la-9]]", Language.UniversalEnglish);
+    sg.getNodeByIndexSafe(3).setLemma("prof");
+    sg.getNodeByIndexSafe(4).setLemma(".");
+    sg.getNodeByIndexSafe(5).setLemma("Fotticchia");
+    SemanticGraph newSG = mergeSsurgeon.iterate(sg).first;
+    assertEquals(expected, newSG);
+    IndexedWord prof = sg.getNodeByIndexSafe(3);
+    assertEquals("prof.Fotticchia", prof.lemma());
+  }
+
+  /**
+   * A simple test sent to us from a user (unbelievably, ssurgeon apparently has users)
+   */
+  @Test
+  public void readXMLMergeNodesIceCream() {
+    Ssurgeon inst = Ssurgeon.inst();
+
+    // demostrate merging with the order ice, cream -> icecream
+    String merge = String.join(newline,
+                               "<ssurgeon-pattern-list>",
+                               "  <ssurgeon-pattern>",
+                               "    <uid>38</uid>",
+                               "    <notes>Merge two nodes that should not have been split</notes>",
+                               "    <semgrex>" + XMLUtils.escapeXML("{}=gov >obj ({word:cream}=node1 >compound {word:ice}=node2)") + "</semgrex>",
+                               "    <edit-list>mergeNodes -node node2 -node node1</edit-list>",
+                               "  </ssurgeon-pattern>",
+                               "</ssurgeon-pattern-list>");
+    List<SsurgeonPattern> patterns = inst.readFromString(merge);
+    assertEquals(patterns.size(), 1);
+    SsurgeonPattern mergeSsurgeon = patterns.get(0);
+
+    SemanticGraph sg = SemanticGraph.valueOf("[likes-3 nsubj> [child-2 det> The-1] obj> [cream-5 compound> ice-4]", Language.UniversalEnglish);
+    SemanticGraph newSG = mergeSsurgeon.iterate(sg).first;
+    SemanticGraph expected = SemanticGraph.valueOf("[likes-3 nsubj> [child-2 det> The-1] obj> icecream-4]", Language.UniversalEnglish);
+    assertEquals(expected, newSG);
+
+    merge = String.join(newline,
+                        "<ssurgeon-pattern-list>",
+                        "  <ssurgeon-pattern>",
+                        "    <uid>38</uid>",
+                        "    <notes>Merge two nodes that should not have been split</notes>",
+                        "    <semgrex>" + XMLUtils.escapeXML("{}=gov >obj ({word:cream}=node1 >compound {word:ice}=node2)") + "</semgrex>",
+                        "    <edit-list>mergeNodes -node node1 -node node2</edit-list>",
+                        "  </ssurgeon-pattern>",
+                        "</ssurgeon-pattern-list>");
+    patterns = inst.readFromString(merge);
+    assertEquals(patterns.size(), 1);
+    mergeSsurgeon = patterns.get(0);
+
+    sg = SemanticGraph.valueOf("[likes-3 nsubj> [child-2 det> The-1] obj> [cream-5 compound> ice-4]", Language.UniversalEnglish);
+    newSG = mergeSsurgeon.iterate(sg).first;
+    expected = SemanticGraph.valueOf("[likes-3 nsubj> [child-2 det> The-1] obj> icecream-4]", Language.UniversalEnglish);
+    assertEquals(expected, newSG);
+  }
 
   /**
    * Test a basic case of two nodes that should be merged
@@ -1448,6 +1527,93 @@ public class SsurgeonTest {
     assertNotNull(blueVertex);
     assertNull(blueVertex.tag());
     assertEquals("blue", blueVertex.value());
+  }
+
+  /**
+   * Test that trying to build an EditNode with an illegal removed attribute fails
+   */
+  @Test
+  public void readXMLEditNodeIllegalRemove() {
+    // sanity check that the key we will use does not actually mean anything
+    String missingKey = "zzzzzz";
+    assertNull(AnnotationLookup.toCoreKey(missingKey));
+
+    try {
+      Ssurgeon inst = Ssurgeon.inst();
+      String remove = String.join(newline,
+                                  "<ssurgeon-pattern-list>",
+                                  "  <ssurgeon-pattern>",
+                                  "    <uid>38</uid>",
+                                  "    <notes>Edit a node</notes>",
+                                  "    <semgrex>" + XMLUtils.escapeXML("{word:blue}=blue") + "</semgrex>",
+                                  "    <edit-list>EditNode -node blue -remove " + missingKey + "</edit-list>",
+                                  "  </ssurgeon-pattern>",
+                                  "</ssurgeon-pattern-list>");
+      inst.readFromString(remove);
+      throw new AssertionError("Expected a parse exception!");
+    } catch(SsurgeonParseException e) {
+      // yay
+    }
+  }
+
+  /**
+   * Check that we can add and remove lemmas using EditNode
+   *
+   * Specially testing that the remove functionality works
+   */
+  @Test
+  public void readXMLEditNodeRemove() {
+    Ssurgeon inst = Ssurgeon.inst();
+
+    // use "dep" as the dependency so as to be language-agnostic in this test
+    String add = String.join(newline,
+                             "<ssurgeon-pattern-list>",
+                             "  <ssurgeon-pattern>",
+                             "    <uid>38</uid>",
+                             "    <notes>Edit a node</notes>",
+                             "    <semgrex>" + XMLUtils.escapeXML("{word:blue}=blue") + "</semgrex>",
+                             "    <edit-list>EditNode -node blue -lemma blue</edit-list>",
+                             "  </ssurgeon-pattern>",
+                             "</ssurgeon-pattern-list>");
+    List<SsurgeonPattern> patterns = inst.readFromString(add);
+    assertEquals(patterns.size(), 1);
+    SsurgeonPattern editSsurgeon = patterns.get(0);
+
+    SemanticGraph sg = SemanticGraph.valueOf("[has-2 nsubj> Jennifer-1 obj> [antennae-4 dep> blue-3]]");
+    IndexedWord blueVertex = sg.getNodeByIndexSafe(3);
+    assertEquals("blue", blueVertex.value());
+    assertNull(blueVertex.lemma());
+
+    SemanticGraph newSG = editSsurgeon.iterate(sg).first;
+    SemanticGraph expected = SemanticGraph.valueOf("[has-2 nsubj> Jennifer-1 obj> [antennae-4 dep> blue-3]]");
+    assertEquals(expected, newSG);
+    // this ssurgeon will fix the color of the antennae
+    blueVertex = newSG.getNodeByIndexSafe(3);
+    assertNotNull(blueVertex);
+    assertNull(blueVertex.tag());
+    assertEquals("blue", blueVertex.value());
+    assertEquals("blue", blueVertex.lemma());
+
+    String remove = String.join(newline,
+                                "<ssurgeon-pattern-list>",
+                                "  <ssurgeon-pattern>",
+                                "    <uid>38</uid>",
+                                "    <notes>Edit a node</notes>",
+                                "    <semgrex>" + XMLUtils.escapeXML("{word:blue}=blue") + "</semgrex>",
+                                "    <edit-list>EditNode -node blue -remove lemma</edit-list>",
+                                "  </ssurgeon-pattern>",
+                                "</ssurgeon-pattern-list>");
+    patterns = inst.readFromString(remove);
+    assertEquals(patterns.size(), 1);
+    editSsurgeon = patterns.get(0);
+
+    SemanticGraph noLemmaSG = editSsurgeon.iterate(newSG).first;
+    assertEquals(expected, noLemmaSG);
+    blueVertex = noLemmaSG.getNodeByIndexSafe(3);
+    assertNotNull(blueVertex);
+    assertNull(blueVertex.tag());
+    assertEquals("blue", blueVertex.value());
+    assertNull(blueVertex.lemma());
   }
 
   /**
@@ -1954,6 +2120,220 @@ public class SsurgeonTest {
     assertEquals(newSg, expected);
   }
 
+  @Test
+  public void readXMLSetPhraseHead() {
+    String doc = String.join(newline,
+                             "<ssurgeon-pattern-list>",
+                             "  <ssurgeon-pattern>",
+                             "    <uid>38</uid>",
+                             "    <notes>Test resetting a phrase's internal and external links</notes>",
+                             "    <language>UniversalEnglish</language>",
+                             "    <semgrex>" + XMLUtils.escapeXML("{word:John}=n1 . {word:Bauer}=n2") + "</semgrex>",
+                             "    <edit-list>SetPhraseHead -node n1 -node n2 -headIndex 0 -reln flat</edit-list>",
+                             "  </ssurgeon-pattern>",
+                             "</ssurgeon-pattern-list>");
+    Ssurgeon inst = Ssurgeon.inst();
+    List<SsurgeonPattern> patterns = inst.readFromString(doc);
+    assertEquals(patterns.size(), 1);
+    SsurgeonPattern pattern = patterns.get(0);
+
+    // test where the new phrase is not the root
+    SemanticGraph sg = SemanticGraph.valueOf("[works-4 obl> [Stanford-6 case> at-5] nsubj> [Bauer-3 flat> John-2 nmod> Earl-1]]");
+    SemanticGraph newSg = pattern.iterate(sg).first;
+    SemanticGraph expected = SemanticGraph.valueOf("[works-4 obl> [Stanford-6 case> at-5] nsubj> [John-2 flat> Bauer-3 nmod> Earl-1]]");
+    assertEquals(newSg, expected);
+
+    // test where the new phrase IS the root
+    sg = SemanticGraph.valueOf("[Bauer-5 flat> John-4 cop> is-3 nsubj> [programmer-2 det> The-1]]");
+    newSg = pattern.iterate(sg).first;
+    expected = SemanticGraph.valueOf("[John-4 flat> Bauer-5 cop> is-3 nsubj> [programmer-2 det> The-1]]");
+    assertEquals(newSg, expected);
+  }
+
+  /**
+   * Test splitWord, which should split a word into pieces based on regex matches, with the head at position 0
+   */
+  @Test
+  public void readXMLSplitTwoWords() {
+    String doc = String.join(newline,
+                             "<ssurgeon-pattern-list>",
+                             "  <ssurgeon-pattern>",
+                             "    <uid>38</uid>",
+                             "    <notes>Test splitting a word into two pieces with the head at the start</notes>",
+                             "    <language>UniversalEnglish</language>",
+                             "    <semgrex>" + XMLUtils.escapeXML("{word:/foobar/}=split") + "</semgrex>",
+                             "    <edit-list>splitWord -node split -regex ^(foo)bar$ -regex ^foo(bar)$ -reln dep -headIndex 0</edit-list>",
+                             "  </ssurgeon-pattern>",
+                             "</ssurgeon-pattern-list>");
+    Ssurgeon inst = Ssurgeon.inst();
+    List<SsurgeonPattern> patterns = inst.readFromString(doc);
+    assertEquals(patterns.size(), 1);
+    SsurgeonPattern pattern = patterns.get(0);
+
+    SemanticGraph sg = SemanticGraph.valueOf("[example-3 det> the-1 amod> foobar-2]");
+    SemanticGraph newSg = pattern.iterate(sg).first;
+    SemanticGraph expected = SemanticGraph.valueOf("[example-4 det> the-1 amod> [foo-2 dep> bar-3]]");
+    assertEquals(newSg, expected);
+  }
+
+  /**
+   * Test a splitWord which will split words based on exact pieces
+   */
+  @Test
+  public void readXMLSplitTwoWordsExact() {
+    String doc = String.join(newline,
+                             "<ssurgeon-pattern-list>",
+                             "  <ssurgeon-pattern>",
+                             "    <uid>38</uid>",
+                             "    <notes>Test splitting a word into two pieces with the head at the start</notes>",
+                             "    <language>UniversalEnglish</language>",
+                             "    <semgrex>" + XMLUtils.escapeXML("{word:/foobar/}=split") + "</semgrex>",
+                             "    <edit-list>splitWord -node split -exact foo -exact bar -reln dep -headIndex 0</edit-list>",
+                             "  </ssurgeon-pattern>",
+                             "</ssurgeon-pattern-list>");
+    Ssurgeon inst = Ssurgeon.inst();
+    List<SsurgeonPattern> patterns = inst.readFromString(doc);
+    assertEquals(patterns.size(), 1);
+    SsurgeonPattern pattern = patterns.get(0);
+
+    SemanticGraph sg = SemanticGraph.valueOf("[example-3 det> the-1 amod> foobar-2]");
+    SemanticGraph newSg = pattern.iterate(sg).first;
+    SemanticGraph expected = SemanticGraph.valueOf("[example-4 det> the-1 amod> [foo-2 dep> bar-3]]");
+    assertEquals(newSg, expected);
+  }
+
+  /**
+   * Test splitWord, which should split a word into pieces based on regex matches, with the head at position 1
+   */
+  @Test
+  public void readXMLSplitTwoWordsAfter() {
+    String doc = String.join(newline,
+                             "<ssurgeon-pattern-list>",
+                             "  <ssurgeon-pattern>",
+                             "    <uid>38</uid>",
+                             "    <notes>Test splitting a word into two pieces with the head at the start</notes>",
+                             "    <language>UniversalEnglish</language>",
+                             "    <semgrex>" + XMLUtils.escapeXML("{word:/foobar/}=split") + "</semgrex>",
+                             "    <edit-list>splitWord -node split -regex ^(foo)bar$ -regex ^foo(bar)$ -reln dep -headIndex 1</edit-list>",
+                             "  </ssurgeon-pattern>",
+                             "</ssurgeon-pattern-list>");
+    Ssurgeon inst = Ssurgeon.inst();
+    List<SsurgeonPattern> patterns = inst.readFromString(doc);
+    assertEquals(patterns.size(), 1);
+    SsurgeonPattern pattern = patterns.get(0);
+
+    SemanticGraph sg = SemanticGraph.valueOf("[example-3 det> the-1 amod> foobar-2]");
+    SemanticGraph newSg = pattern.iterate(sg).first;
+    SemanticGraph expected = SemanticGraph.valueOf("[example-4 det> the-1 amod> [bar-3 dep> foo-2]]");
+    assertEquals(newSg, expected);
+  }
+
+  /**
+   * Test splitWord, which should split a word into pieces based on regex matches, with the head at position 1
+   */
+  @Test
+  public void readXMLSplitTwoWordsNamed() {
+    String doc = String.join(newline,
+                             "<ssurgeon-pattern-list>",
+                             "  <ssurgeon-pattern>",
+                             "    <uid>38</uid>",
+                             "    <notes>Test splitting a word into two pieces with the head at the start</notes>",
+                             "    <language>UniversalEnglish</language>",
+                             "    <semgrex>" + XMLUtils.escapeXML("{word:/foobar/}=split") + "</semgrex>",
+                             "    <edit-list>splitWord -node split -regex ^(foo)bar$ -regex ^foo(bar)$ -reln dep -headIndex 1 -name 0=asdf</edit-list>",
+                             "    <edit-list>editNode -node asdf -pos ADJ</edit-list>",
+                             "  </ssurgeon-pattern>",
+                             "</ssurgeon-pattern-list>");
+    Ssurgeon inst = Ssurgeon.inst();
+    List<SsurgeonPattern> patterns = inst.readFromString(doc);
+    assertEquals(patterns.size(), 1);
+    SsurgeonPattern pattern = patterns.get(0);
+
+    SemanticGraph sg = SemanticGraph.valueOf("[example-3 det> the-1 amod> foobar-2]");
+    SemanticGraph newSg = pattern.iterate(sg).first;
+    SemanticGraph expected = SemanticGraph.valueOf("[example-4 det> the-1 amod> [bar-3 dep> foo-2]]");
+    assertEquals(newSg, expected);
+
+    boolean found = false;
+    for (IndexedWord word : newSg.vertexSet()) {
+      if (word.index() == 2) {
+        assertEquals("ADJ", word.get(CoreAnnotations.PartOfSpeechAnnotation.class));
+        found = true;
+      } else {
+        assertEquals(null, word.get(CoreAnnotations.PartOfSpeechAnnotation.class));
+      }
+    }
+    assertTrue(found);
+  }
+
+  /**
+   * Test splitWord, which should split a word into pieces based on regex matches, with the head at position 1
+   */
+  @Test
+  public void readXMLReindexGraph() {
+    String doc = String.join(newline,
+                             "<ssurgeon-pattern-list>",
+                             "  <ssurgeon-pattern>",
+                             "    <uid>38</uid>",
+                             "    <notes>Reindex all nodes to have a base index of 1</notes>",
+                             "    <language>UniversalEnglish</language>",
+                             "    <semgrex>" + XMLUtils.escapeXML("{$}") + "</semgrex>",
+                             "    <edit-list>reindexGraph</edit-list>",
+                             "  </ssurgeon-pattern>",
+                             "</ssurgeon-pattern-list>");
+    Ssurgeon inst = Ssurgeon.inst();
+    List<SsurgeonPattern> patterns = inst.readFromString(doc);
+    assertEquals(patterns.size(), 1);
+    SsurgeonPattern pattern = patterns.get(0);
+
+    SemanticGraph sg = SemanticGraph.valueOf("[example-5 det> the-2 amod> foobar-4]");
+    SemanticGraph newSg = pattern.iterate(sg).first;
+    SemanticGraph expected = SemanticGraph.valueOf("[example-3 det> the-1 amod> foobar-2]");
+
+    Map<String, Integer> expectedIndices = new HashMap<String, Integer>() {{
+        put("example", 3);
+        put("the", 1);
+        put("foobar", 2);
+      }};
+    // iterate & assert the indices separately so that if something goes wrong,
+    // it is clear what the error is
+    // the indices are supposed to be remapped to be 1, 2, 3
+    for (IndexedWord vertex : newSg.vertexSet()) {
+      assertTrue(expectedIndices.containsKey(vertex.word()));
+      int index = vertex.index();
+      int expectedIndex = expectedIndices.get(vertex.word());
+      assertEquals(index, expectedIndex);
+    }
+
+    assertEquals(newSg, expected);
+  }
+
+  /**
+   * Test splitWord, which should split a word into pieces based on regex matches, with three pieces
+   */
+  @Test
+  public void readXMLSplitThreeWords() {
+    String doc = String.join(newline,
+                             "<ssurgeon-pattern-list>",
+                             "  <ssurgeon-pattern>",
+                             "    <uid>38</uid>",
+                             "    <notes>Test splitting a word into two pieces with the head at the start</notes>",
+                             "    <language>UniversalEnglish</language>",
+                             "    <semgrex>" + XMLUtils.escapeXML("{word:/foobarbaz/}=split") + "</semgrex>",
+                             "    <edit-list>splitWord -node split -regex ^(foo)barbaz$ -regex ^foo(bar)baz$ -regex ^foobar(baz)$ -reln dep -headIndex 1</edit-list>",
+                             "  </ssurgeon-pattern>",
+                             "</ssurgeon-pattern-list>");
+    Ssurgeon inst = Ssurgeon.inst();
+    List<SsurgeonPattern> patterns = inst.readFromString(doc);
+    assertEquals(patterns.size(), 1);
+    SsurgeonPattern pattern = patterns.get(0);
+
+    SemanticGraph sg = SemanticGraph.valueOf("[example-3 det> the-1 amod> foobarbaz-2]");
+    SemanticGraph newSg = pattern.iterate(sg).first;
+    SemanticGraph expected = SemanticGraph.valueOf("[example-5 det> the-1 amod> [bar-3 dep> foo-2 dep>baz-4]]");
+    assertEquals(newSg, expected);
+  }
+
   /**
    * Simple test of an Ssurgeon edit script.  This instances a simple semantic graph,
    * a semgrex pattern, and then the resulting actions over the named nodes in the
@@ -1997,5 +2377,15 @@ public class SsurgeonTest {
       System.out.println("Modified = "+newSg.toCompactString());
     String firstGraphString = newSgs.iterator().next().toCompactString().trim();
     assertEquals("[bartender nsubj>Joe det>the cop>is]", firstGraphString);
+  }
+
+  /**
+   * Test that a couple fields used in Ssurgeon don't conflict with annotation keys in AnnotationLookup
+   */
+  @Test
+  public void annotationNamesTest() {
+    assertNull(AnnotationLookup.toCoreKey(Ssurgeon.REMOVE));
+    assertNull(AnnotationLookup.toCoreKey(Ssurgeon.UPDATE_MORPHO_FEATURES));
+    assertNull(AnnotationLookup.toCoreKey(Ssurgeon.UPDATE_MORPHO_FEATURES_LOWER));
   }
 }

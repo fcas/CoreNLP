@@ -522,8 +522,8 @@ public class UniversalEnglishGrammaticalStructureTest extends Assert {
           "( (S (NP (PRP I)) (VP (VBP like) (NP (CONJP (RB not) (RB only)) (NP (NNS cats)) (CONJP (CC but) (RB also)) (NP (NN dogs)))) (. .)))",
           "nsubj(like-2, I-1)\n" +
            "root(ROOT-0, like-2)\n" +
-           "advmod(only-4, not-3)\n" +
-           "cc:preconj(cats-5, only-4)\n" +
+           "advmod(cats-5, not-3)\n" +
+           "advmod(cats-5, only-4)\n" +
            "obj(like-2, cats-5)\n" +
            "cc(dogs-8, but-6)\n" +
            "advmod(dogs-8, also-7)\n" +
@@ -580,7 +580,7 @@ public class UniversalEnglishGrammaticalStructureTest extends Assert {
           "( (SINV (ADVP (RB Also)) (VP (VBN excluded)) (VP (MD will) (VP (VB be))) (NP (NP (NNS investments)) (PP (IN in) (NP (NNP South) (NNP Africa)))) (. .)))",
           "advmod(excluded-2, Also-1)\n" +
            "root(ROOT-0, excluded-2)\n" +
-           "aux(be-4, will-3)\n" + // should really be aux(excluded-2, will-3) but impossible at present without reconstructing topicalized VP semantic head
+           "aux(excluded-2, will-3)\n" +
            "aux:pass(excluded-2, be-4)\n" +
            "nsubj:pass(excluded-2, investments-5)\n" +
            "case(Africa-8, in-6)\n" +
@@ -2497,8 +2497,8 @@ public class UniversalEnglishGrammaticalStructureTest extends Assert {
               "( (S (NP (PRP I)) (VP (VBP like) (NP (CONJP (RB not) (RB only)) (NP (NNS cats)) (CONJP (CC but) (RB also)) (NP (NN dogs)))) (. .)))",
               "nsubj(like-2, I-1)\n" +
                "root(ROOT-0, like-2)\n" +
-               "advmod(only-4, not-3)\n" +
-               "cc:preconj(cats-5, only-4)\n" +
+               "advmod(cats-5, not-3)\n" +
+               "advmod(cats-5, only-4)\n" +
                "obj(like-2, cats-5)\n" +
                "cc(dogs-8, but-6)\n" +
                "advmod(dogs-8, also-7)\n" +
@@ -2510,8 +2510,8 @@ public class UniversalEnglishGrammaticalStructureTest extends Assert {
                "nsubj(flew-2', Fred-1)\n" +
                "root(ROOT-0, flew-2)\n" +
                "conj:and(flew-2, flew-2')\n" +
-               "advmod(only-4, not-3)\n" +
-               "cc:preconj(Greece-6, only-4)\n" +
+               "advmod(Greece-6, not-3)\n" +
+               "advmod(Greece-6, only-4)\n" +
                "case(Greece-6, to-5)\n" +
                "obl:to(flew-2, Greece-6)\n" +
                "cc(flew-2', but-7)\n" +

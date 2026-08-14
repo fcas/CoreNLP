@@ -41,8 +41,19 @@ LICENSE
 CHANGES
 ---------------------------------
 
-2024-05-17    4.5.8     Update paths to reflect an internal file
-                        server dying
+2025-06-06   4.5.10     Additional Semgrex / SSurgeon features and
+                        remove patterns/lucene because of security
+                        warning
+
+2025-03-23    4.5.9     Additional Semgrex / SSurgeon features and a
+                        security patch recommended for deserialization
+
+2024-12-11    4.5.8     Update paths to reflect an internal file 
+                        server dying.  Add brat demo files to distrib 
+                        to reduce dependencies on nlp.stanford.edu.  
+                        Update the con->dep converter for UD.  Update 
+                        some external libraries for security 
+                        vulnerabilities
 
 2024-04-18    4.5.7     Add the f1 scores to the parser output,
                         improve the dependency converter

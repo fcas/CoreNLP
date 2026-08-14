@@ -333,7 +333,10 @@ public class StanfordCoreNLPServer implements Runnable {
         return annotation;
       case "serialized":
         String inputSerializerName = props.getProperty("inputSerializer", ProtobufAnnotationSerializer.class.getName());
-        AnnotationSerializer serializer = MetaClass.create(inputSerializerName).createInstance();
+        if (!inputSerializerName.equals(ProtobufAnnotationSerializer.class.getName())) {
+          throw new IOException("Specifying an inputSerializer other than ProtobufAnnotationSerializer is now deprecated for security reasons.  See https://github.com/stanfordnlp/CoreNLP/security/advisories/GHSA-wv35-hv9v-526p  If you have need for a different class, please post about your use case on the CoreNLP github.");
+        }
+        AnnotationSerializer serializer = new ProtobufAnnotationSerializer();
         Pair<Annotation, InputStream> pair = serializer.read(httpExchange.getRequestBody());
         return pair.first;
       default:
@@ -852,6 +855,35 @@ public class StanfordCoreNLPServer implements Runnable {
     }
   } // end static class FileHandler
 
+  /**
+   * Serve a content file (image, font, etc) from the filesystem or classpath
+   */
+  public static class BytesFileHandler implements HttpHandler {
+    private final byte[] content;
+    private final String contentType;
+    public BytesFileHandler(String fileOrClasspath, String contentType) throws IOException {
+      try (InputStream is = IOUtils.getInputStreamFromURLOrClasspathOrFileSystem(fileOrClasspath)) {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        int available = is.available();
+        while (available > 0) {
+          byte next[] = new byte[available];
+          is.read(next);
+          bos.write(next);
+          available = is.available();
+        }
+        this.content = bos.toByteArray();
+      }
+      this.contentType = contentType + "; charset=utf-8";  // always encode in utf-8
+    }
+    @Override
+    public void handle(HttpExchange httpExchange) throws IOException {
+      httpExchange.getResponseHeaders().set("Content-type", this.contentType);
+      httpExchange.sendResponseHeaders(HTTP_OK, content.length);
+      httpExchange.getResponseBody().write(content);
+      httpExchange.close();
+    }
+  } // end static class FileHandler
+
   private int maybeAlterStanfordTimeout(HttpExchange httpExchange, int timeoutMilliseconds) {
     if ( ! stanford) {
       return timeoutMilliseconds;
@@ -910,17 +942,21 @@ public class StanfordCoreNLPServer implements Runnable {
 
     private final FileHandler homepage;
 
+    private final String contextRoot;
+
     /**
      * Create a handler for accepting annotation requests.
      * @param props The properties file to use as the default if none were sent by the client.
      */
     public CoreNLPHandler(Properties props, Predicate<Properties> authenticator,
                           Consumer<FinishedRequest> callback,
-                          FileHandler homepage) {
+                          FileHandler homepage,
+                          String contextRoot) {
       this.defaultProps = props;
       this.callback = callback;
       this.authenticator = authenticator;
       this.homepage = homepage;
+      this.contextRoot = contextRoot;
     }
 
     /**
@@ -961,6 +997,15 @@ public class StanfordCoreNLPServer implements Runnable {
       }
       setHttpExchangeResponseHeaders(httpExchange);
 
+      if (!this.contextRoot.equals(httpExchange.getRequestURI().getRawPath())) {
+        System.out.println("Can't find " + httpExchange.getRequestURI().getRawPath());
+        String response = "URI " + httpExchange.getRequestURI().getRawPath() + " not handled";
+        httpExchange.getResponseHeaders().add("Content-type", "text/plain");
+        httpExchange.sendResponseHeaders(HTTP_NOT_FOUND, response.length());
+        httpExchange.getResponseBody().write(response.getBytes());
+        httpExchange.close();
+        return;
+      }
       // Get sentence.
       Properties props;
       Annotation ann;
@@ -1303,18 +1348,12 @@ public class StanfordCoreNLPServer implements Runnable {
               return Pair.makePair("".getBytes(), null);
             }
 
-            CoreNLPProtos.SemgrexResponse.Builder responseBuilder = CoreNLPProtos.SemgrexResponse.newBuilder();
-            int sentenceIdx = 0;
-            for (CoreMap sentence : doc.get(CoreAnnotations.SentencesAnnotation.class)) {
-              SemanticGraph graph = sentence.get(dependenciesType.annotation());
-              CoreNLPProtos.SemgrexResponse.GraphResult.Builder graphResultBuilder = CoreNLPProtos.SemgrexResponse.GraphResult.newBuilder();
-              graphResultBuilder.addResult(ProcessSemgrexRequest.matchSentence(regex, graph, 0, sentenceIdx));
-              responseBuilder.addResult(graphResultBuilder.build());
-              ++sentenceIdx;
-            }
+            List<CoreMap> sentences = doc.get(CoreAnnotations.SentencesAnnotation.class);
+            List<SemgrexPattern> patterns = Collections.singletonList(regex);
+            CoreNLPProtos.SemgrexResponse semgrexResponse = ProcessSemgrexRequest.processRequest(sentences, patterns);
 
             ByteArrayOutputStream os = new ByteArrayOutputStream();
-            responseBuilder.build().writeTo(os);
+            semgrexResponse.writeTo(os);
             os.close();
 
             return Pair.makePair(os.toByteArray(), doc);
@@ -1739,14 +1778,36 @@ public class StanfordCoreNLPServer implements Runnable {
       if (contextRoot.isEmpty()) {
         contextRoot = "/";
       }
-      withAuth(server.createContext(contextRoot, new CoreNLPHandler(defaultProps, authenticator, callback, homepage)), basicAuth);
+      withAuth(server.createContext(contextRoot, new CoreNLPHandler(defaultProps, authenticator, callback, homepage, contextRoot)), basicAuth);
       withAuth(server.createContext(uriContext+"/tokensregex", new TokensRegexHandler(authenticator, callback)), basicAuth);
       withAuth(server.createContext(uriContext+"/semgrex", new SemgrexHandler(authenticator, callback)), basicAuth);
       withAuth(server.createContext(uriContext+"/tregex", new TregexHandler(authenticator, callback)), basicAuth);
       withAuth(server.createContext(uriContext+"/scenegraph", new SceneGraphHandler(authenticator)), basicAuth);
+
       withAuth(server.createContext(uriContext+"/corenlp-brat.js", new FileHandler("edu/stanford/nlp/pipeline/demo/corenlp-brat.js", "application/javascript")), basicAuth);
       withAuth(server.createContext(uriContext+"/corenlp-brat.cs", new FileHandler("edu/stanford/nlp/pipeline/demo/corenlp-brat.css", "text/css")), basicAuth);
       withAuth(server.createContext(uriContext+"/corenlp-parseviewer.js", new FileHandler("edu/stanford/nlp/pipeline/demo/corenlp-parseviewer.js", "application/javascript")), basicAuth);
+
+      withAuth(server.createContext(uriContext+"/style-vis.css", new FileHandler("edu/stanford/nlp/pipeline/demo/style-vis.css", "text/css")), basicAuth);
+
+      withAuth(server.createContext(uriContext+"/static/fonts/Astloch-Bold.ttf", new BytesFileHandler("edu/stanford/nlp/pipeline/demo/Astloch-Bold.ttf", "font/ttfx")), basicAuth);
+      withAuth(server.createContext(uriContext+"/static/fonts/Liberation_Sans-Regular.ttf", new BytesFileHandler("edu/stanford/nlp/pipeline/demo/LiberationSans-Regular.ttf", "font/ttf")), basicAuth);
+      withAuth(server.createContext(uriContext+"/static/fonts/PT_Sans-Caption-Web-Regular.ttf", new BytesFileHandler("edu/stanford/nlp/pipeline/demo/PTSansCaption-Regular.ttf", "font/ttf")), basicAuth);
+
+      withAuth(server.createContext(uriContext+"/annotation_log.js", new BytesFileHandler("edu/stanford/nlp/pipeline/demo/annotation_log.js", "application/javascript")), basicAuth);
+      withAuth(server.createContext(uriContext+"/configuration.js", new BytesFileHandler("edu/stanford/nlp/pipeline/demo/configuration.js", "application/javascript")), basicAuth);
+      withAuth(server.createContext(uriContext+"/dispatcher.js", new BytesFileHandler("edu/stanford/nlp/pipeline/demo/dispatcher.js", "application/javascript")), basicAuth);
+      withAuth(server.createContext(uriContext+"/head.load.min.js", new BytesFileHandler("edu/stanford/nlp/pipeline/demo/head.load.min.js", "application/javascript")), basicAuth);
+      withAuth(server.createContext(uriContext+"/jquery.svg.min.js", new BytesFileHandler("edu/stanford/nlp/pipeline/demo/jquery.svg.min.js", "application/javascript")), basicAuth);
+      withAuth(server.createContext(uriContext+"/jquery.svgdom.min.js", new BytesFileHandler("edu/stanford/nlp/pipeline/demo/jquery.svg.min.js", "application/javascript")), basicAuth);
+      withAuth(server.createContext(uriContext+"/url_monitor.js", new BytesFileHandler("edu/stanford/nlp/pipeline/demo/url_monitor.js", "application/javascript")), basicAuth);
+      withAuth(server.createContext(uriContext+"/util.js", new BytesFileHandler("edu/stanford/nlp/pipeline/demo/util.js", "application/javascript")), basicAuth);
+      withAuth(server.createContext(uriContext+"/visualizer.js", new BytesFileHandler("edu/stanford/nlp/pipeline/demo/visualizer.js", "application/javascript")), basicAuth);
+      withAuth(server.createContext(uriContext+"/webfont.js", new BytesFileHandler("edu/stanford/nlp/pipeline/demo/webfont.js", "application/javascript")), basicAuth);
+
+      withAuth(server.createContext(uriContext+"/img/corenlp-title.png", new BytesFileHandler("edu/stanford/nlp/pipeline/demo/corenlp-title.png", "image/png")), basicAuth);
+      withAuth(server.createContext(uriContext+"/img/loading.gif", new BytesFileHandler("edu/stanford/nlp/pipeline/demo/loading.gif", "image/gif")), basicAuth);
+
       withAuth(server.createContext(uriContext+"/ping", new PingHandler()), Optional.empty());
       withAuth(server.createContext(uriContext+"/shutdown", new ShutdownHandler()), basicAuth);
       if (this.serverPort == this.statusPort) {

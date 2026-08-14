@@ -1,9 +1,13 @@
 package edu.stanford.nlp.semgraph.semgrex.ssurgeon;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
+import edu.stanford.nlp.ling.AnnotationLookup;
+import edu.stanford.nlp.ling.CoreAnnotation;
 import edu.stanford.nlp.ling.CoreAnnotations;
 import edu.stanford.nlp.ling.CoreLabel;
 import edu.stanford.nlp.ling.IndexedWord;
@@ -20,15 +24,17 @@ public class EditNode extends SsurgeonEdit {
   public static final String LABEL = "editNode";
 
   final String nodeName;
+  final List<String> removedAttributes;
+  final List<String> removedMorpho;
   final Map<String, String> attributes;
   final Map<String, String> updateMorphoFeatures;
 
-  public EditNode(String nodeName, Map<String, String> attributes, String updateMorphoFeatures) {
+  public EditNode(String nodeName, Map<String, String> attributes, String updateMorphoFeatures, List<String> removedAttributes, List<String> removedMorpho) {
     if (nodeName == null) {
       throw new SsurgeonParseException("Cannot make an EditNode with no nodeName");
     }
-    if (attributes.size() == 0 && updateMorphoFeatures == null) {
-      throw new SsurgeonParseException("Cannot make an EditNode with no attributes or updated morphological features");
+    if (attributes.size() == 0 && updateMorphoFeatures == null && removedAttributes.size() == 0 && removedMorpho.size() == 0) {
+      throw new SsurgeonParseException("Cannot make an EditNode with no updated attributes, removed attributes, or updated/removed morphological features");
     }
     AddDep.checkIllegalAttributes(attributes);
     this.nodeName = nodeName;
@@ -38,6 +44,13 @@ public class EditNode extends SsurgeonEdit {
     } else {
       this.updateMorphoFeatures = Collections.emptyMap();
     }
+    this.removedAttributes = new ArrayList<>(removedAttributes);
+    for (String attr : removedAttributes) {
+      if (AnnotationLookup.toCoreKey(attr) == null) {
+        throw new SsurgeonParseException("Unknown attribute |" + attr + "| when building an EditNode operation");
+      }
+    }
+    this.removedMorpho = new ArrayList<>(removedMorpho);
   }
 
 
@@ -64,6 +77,13 @@ public class EditNode extends SsurgeonEdit {
       buf.append(Ssurgeon.UPDATE_MORPHO_FEATURES);
       buf.append(" ");
       buf.append(CoNLLUFeatures.toFeatureString(this.updateMorphoFeatures));
+    }
+
+    for (String remove : removedMorpho) {
+      buf.append(" ");
+      buf.append(Ssurgeon.REMOVE_MORPHO_FEATURES);
+      buf.append(" ");
+      buf.append(remove);
     }
 
     return buf.toString();
@@ -104,6 +124,24 @@ public class EditNode extends SsurgeonEdit {
       if (!updateMorphoFeatures.get(key).equals(features.get(key))) {
         changed = true;
         features.put(key, updateMorphoFeatures.get(key));
+      }
+    }
+
+    for (String key : removedMorpho) {
+      CoNLLUFeatures features = word.get(CoreAnnotations.CoNLLUFeats.class);
+      if (features == null) {
+        continue;
+      }
+      if (features.get(key) != null) {
+        changed = true;
+        features.remove(key);
+      }
+    }
+
+    for (String key : removedAttributes) {
+      Class<? extends CoreAnnotation<?>> clazz = AnnotationLookup.toCoreKey(key);
+      if (word.remove((Class) clazz) != null) {
+        changed = true;
       }
     }
 

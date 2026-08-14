@@ -85,91 +85,115 @@ import edu.stanford.nlp.util.logging.Redwood;
  * <li> {@code editNode -node node ...attributes...}
  * <li> {@code lemmatize -node node}
  * <li> {@code combineMWT -node node -word word}
+ * <li> {@code splitWord -node node -headIndex idx -reln depType -regex w1 -regex w2 ...}
  * <li> {@code setRoots n1 (n2 n3 ...)}
- * <li> {@code mergeNodes n1 n2}
+ * <li> {@code mergeNodes -node n1 -node n2 ...}
  * <li> {@code killAllIncomingEdges -node node}
  * <li> {@code delete -node node}
  * <li> {@code deleteLeaf -node node}
  * <li> {@code killNonRootedNodes}
+ * <li> {@code reindexGraph}
  * </ul>
  *
  *<p>
- * {@code addEdge} adds a new edge between two existing nodes.
- * {@code -gov} and {@code -dep} will be nodes matched by the Semgrex pattern.
+ * {@code addEdge} adds a new edge between two existing nodes. <br>
+ * {@code -gov} and {@code -dep} will be nodes matched by the Semgrex pattern. <br>
  * {@code -reln} is the name of the dependency type to add.
  *</p><p>
- * {@code relabelNamedEdge} changes the dependency type of a named edge.
- * {@code edge} is the name of the edge in the Semgrex pattern.
+ * {@code relabelNamedEdge} changes the dependency type of a named edge. <br>
+ * {@code edge} is the name of the edge in the Semgrex pattern. <br>
  * {@code -reln} is the name of the dependency type to use.
  *</p><p>
- * {@code removeEdge} deletes an edge based on its description.
- * {@code -gov} is the governor to delete, a named node from the Semgrex pattern.
- * {@code -dep} is the dependent to delete, a named node from the Semgrex pattern.
- * {@code -reln} is the name of the dependency to delete.
+ * {@code removeEdge} deletes an edge based on its description. <br>
+ * {@code -gov} is the governor to delete, a named node from the Semgrex pattern. <br>
+ * {@code -dep} is the dependent to delete, a named node from the Semgrex pattern. <br>
+ * {@code -reln} is the name of the dependency to delete. <br>
  * If {@code -gov} or {@code -dep} are left empty, then all (matching) edges to or from the
  * remaining argument will be deleted.
  *</p><p>
- * {@code removeNamedEdge} deletes an edge based on its name.
+ * {@code removeNamedEdge} deletes an edge based on its name. <br>
  * {@code edge} is the name of the edge in the Semgrex pattern.
  *</p><p>
- * {@code reattachNamedEdge} changes an edge's gov and/or dep based on its name.
- * {@code edge} is the name of the edge in the Semgrex pattern.
- * {@code -gov} is the governor to attach to, a named node from the Semgrex pattern.  If left blank, no edit.
- * {@code -dep} is the dependent to attach to, a named node from the Semgrex pattern.  If left blank, no edit.
+ * {@code reattachNamedEdge} changes an edge's gov and/or dep based on its name. <br>
+ * {@code edge} is the name of the edge in the Semgrex pattern. <br>
+ * {@code -gov} is the governor to attach to, a named node from the Semgrex pattern.  If left blank, no edit. <br>
+ * {@code -dep} is the dependent to attach to, a named node from the Semgrex pattern.  If left blank, no edit. <br>
  * At least one of {@code -gov} or {@code -dep} must be set.
  *</p><p>
- * {@code addDep} adds a word and a dependency arc to the dependency graph.
- * {@code -gov} is the governor to attach to, a named node from the Semgrex pattern.
- * {@code -reln} is the name of the dependency type to use.
+ * {@code addDep} adds a word and a dependency arc to the dependency graph. <br>
+ * {@code -gov} is the governor to attach to, a named node from the Semgrex pattern. <br>
+ * {@code -reln} is the name of the dependency type to use. <br>
  * {@code -position} is where in the sentence the word should go.  {@code -} will be the first word of the sentence,
  *   {@code +} will be the last word of the sentence, and {@code -node} or {@code +node} will be before or after the
- *   named node.
+ *   named node. <br>
  * {@code ...attributes...} means any attributes which can be set from a string or numerical value
  *   eg {@code -text ...} sets the text of the word
  *   {@code -pos ...} sets the xpos of the word, {@code -cpos ...} sets the upos of the word, etc.
- *   You cannot set the index of a word this way; an exception will be thrown.
- *   To put whitespace in an attribute, you can quote it.
+ *   You cannot set the index of a word this way; an exception will be thrown. <br>
+ *   To put whitespace in an attribute, you can quote it. <br>
  *   So, for example, a Vietnamese word can be set as {@code -word "xin chào"}
  *</p><p>
- * {@code editNode} will edit the attributes of a word.
- * {@code -node} is the node to edit.
- * {@code ...attributes...} are the attributes to change, same as with {@code addDep}
- *   {@code -morphofeatures ...} will set the features to be exactly as written.  TODO: if anyone
- *   needs the ability to add or remove features without resetting the entire features map,
- *   please file an issue on github.
+ * {@code editNode} will edit the attributes of a word. <br>
+ * {@code -node} is the node to edit. <br>
+ * {@code ...attributes...} are the attributes to change, same as with {@code addDep} <br>
+ *   {@code -morphofeatures ...} will set the features to be exactly as written. <br>
+ *   {@code -updateMorphoFeatures ...} will edit or add the features without overwriting existing features. <br>
+ *   {@code -removeMorphoFeatures ...} will remove this one morpho feature. <br>
+ *   {@code -remove ...} will remove the attribute entirely, such as doing {@code -remove lemma} to remove the lemma.
  *</p><p>
- * {@code lemmatize} will put a lemma on a word.
- * {@code -node} is the node to edit.
+ * {@code lemmatize} will put a lemma on a word. <br>
+ * {@code -node} is the node to edit. <br>
  *   This only works on English text.
  *</p><p>
- * {@code combineMWT} will add MWT attributes to a sequence of two or more words.
- * {@code -node} (repeated) is the nodes to edit.
+ * {@code combineMWT} will add MWT attributes to a sequence of two or more words. <br>
+ * {@code -node} (repeated) is the nodes to edit. <br>
  * {@code -word} is the optional text to use for the new MWT.  If not set, the words will be concatenated.
  *</p><p>
- * {@code setRoots} sets the roots of the sentence to a new root.
- * {@code n1, n2, ...} are the names of the nodes from the Semgrex to use as the root(s).
+ * {@code setPhraseHead} will set a new head for a sequence of nodes.<br>
+ * {@code -node} for each node to include in the phrase. <br>
+ * {@code -headIndex} is the index (counting from 0) of the node to make the head. <br>
+ * {@code -reln} is the name of the dependency type to use to connect the other words in the phrase to the new head <br>
+ * {@code -weight} is the weight to give the new edges (probably not particularly important) <br>
+ * The words must already be in a phrase for this to work.  This is
+ * detected by making sure each node has its parent within the phrase,
+ * except for the head word, which can either be the root or have the
+ * one edge that goes out from the phrase. <br>
+ * This operation reconnects the head of the phrase to the same node that was previously the parent of the phrase. <br>
+ * All edges that previously went to a different word in the phrase are now pointed to the new head of the phrase. <br>
+ * Some of these behaviors are optional.  If you happen to need a different behavior, please file an issue on github.
+ *</p><p>
+ * {@code splitWord} will split a single word into multiple pieces from the text of the current word <br>
+ * {@code -node} is the node to split. <br>
+ * {@code -headIndex} is the index (counting from 0) of the word piece to make the head. <br>
+ * {@code -reln} is the name of the dependency type to use.  pieces other than the head will connect using this relation <br>
+ * {@code -regex} regex must match the matched node.  all matching groups will be concatenated to form a new word.  need at least 2 to split a word
+ *</p><p>
+ * {@code setRoots} sets the roots of the sentence to a new root. <br>
+ * {@code n1, n2, ...} are the names of the nodes from the Semgrex to use as the root(s). <br>
  * This is best done in conjunction with other operations which actually manipulate the structure
  * of the graph, or the new root will weirdly have dependents and the graph will be incorrect.
  *</p><p>
- * {@code mergeNodes} will merge n1 and n2, assuming they are  mergeable.
+ * {@code mergeNodes} will merge n1 and n2, assuming they are mergeable. <br>
  * The nodes can be merged if one of the nodes is the head of a phrase
  * and the other node depends on the head.  TODO: can make it process
  * more than two nodes at once.
  *</p><p>
- * {@code killAllIncomingEdges} deletes all edges to a node.
- * {@code -node} is the node to edit.
+ * {@code killAllIncomingEdges} deletes all edges to a node. <br>
+ * {@code -node} is the node to edit. <br>
  * Note that this is the same as {@code removeEdge} with only the dependent set.
  *</p><p>
- * {@code delete} deletes all nodes reachable from a specific node.
- * {@code -node} is the node to delete.
+ * {@code delete} deletes all nodes reachable from a specific node. <br>
+ * {@code -node} is the node to delete. <br>
  * You will only want to do this after separating the node from the parts of the graph you want to keep.
  *</p><p>
- * {@code deleteLeaf} deletes a node as long as it is a leaf.
- * {@code -node} is the node to delete.
+ * {@code deleteLeaf} deletes a node as long as it is a leaf. <br>
+ * {@code -node} is the node to delete. <br>
  * If the node is not a leaf (no outgoing edges), it will not be deleted.
  *</p><p>
  * {@code killNonRootedNodes} searches the graph and deletes all nodes which have no path to a root.
- *</p>
+ *</p><p>
+ * {@code reindexGraph} reindexes the graph from 1 in case there are gaps or the node indices start later than 1.  (Warning: does not work for first index less than 1)
+ *</P>
  *<p>
  * A practical example comes from the {@code UD_English-Pronouns}
  * dataset, where some words had both {@code nsubj} and {@code csubj}
@@ -218,6 +242,18 @@ relabelNamedEdge -edge bad -reln advcl
   addDep -gov antennae -reln dep -word blue
 }
 </pre>
+ * Some patterns which leave the node in the same format will bomb because of the way the dirty bit works.  For example:
+<pre>
+{@code
+{word:/pattern/;cpos:VERB;morphofeatures:{VerbForm:Inf}}=word
+EditNode -node word -remove morphofeatures
+EditNode -node word -updatemorphofeatures Aspect=Imp -updatemorphofeatures VerbForm=Inf
+}
+</pre>
+ * Here, the end result will be the same after at most one iteration through the loop,
+ * but {@code -remove morphofeatures} sets the dirty bit and does not go away
+ * when {@code -updatemorphofeatures} puts back the deleted features.
+ * TODO: this one at least can be fixed
  *
  * @author Eric Yeh
  */
@@ -397,13 +433,20 @@ public class Ssurgeon  {
   public static final String DEP_NODENAME_ARG = "-dep";
   public static final String EDGE_NAME_ARG = "-edge";
   public static final String NODENAME_ARG = "-node";
+  public static final String REGEX_ARG = "-regex";
+  public static final String EXACT_ARG = "-exact";
   public static final String RELN_ARG = "-reln";
   public static final String NODE_PROTO_ARG = "-nodearg";
   public static final String WEIGHT_ARG = "-weight";
+  public static final String HEAD_INDEX_ARG = "-headIndex";
+  public static final String HEAD_INDEX_LOWER_ARG = "-headindex";
   public static final String NAME_ARG = "-name";
   public static final String POSITION_ARG = "-position";
   public static final String UPDATE_MORPHO_FEATURES = "-updateMorphoFeatures";
   public static final String UPDATE_MORPHO_FEATURES_LOWER = "-updatemorphofeatures";
+  public static final String REMOVE = "-remove";
+  public static final String REMOVE_MORPHO_FEATURES = "-removeMorphoFeatures";
+  public static final String REMOVE_MORPHO_FEATURES_LOWER = "-removemorphofeatures";
 
 
   // args for Ssurgeon edits, allowing us to not
@@ -420,6 +463,10 @@ public class Ssurgeon  {
 
     public List<String> nodes = new ArrayList<>();
 
+    public List<String> regex = new ArrayList<>();
+
+    public List<String> exact = new ArrayList<>();
+
     // below are string representations of the intended values
     public String nodeString = null;
 
@@ -431,7 +478,13 @@ public class Ssurgeon  {
 
     public String updateMorphoFeatures = null;
 
+    public Integer headIndex = null;
+
     public Map<String, String> annotations = new TreeMap<>();
+
+    public List<String> remove = new ArrayList<>();
+
+    public List<String> removeMorphoFeatures = new ArrayList<>();
   }
 
   /**
@@ -489,11 +542,21 @@ public class Ssurgeon  {
         case NODENAME_ARG:
           argsBox.nodes.add(argsValue);
           break;
+        case REGEX_ARG:
+          argsBox.regex.add(argsValue);
+          break;
+        case EXACT_ARG:
+          argsBox.exact.add(argsValue);
+          break;
         case NODE_PROTO_ARG:
           argsBox.nodeString = argsValue;
           break;
         case WEIGHT_ARG:
           argsBox.weight = Double.valueOf(argsValue);
+          break;
+        case HEAD_INDEX_ARG:
+        case HEAD_INDEX_LOWER_ARG:
+          argsBox.headIndex = Integer.valueOf(argsValue);
           break;
         case NAME_ARG:
           argsBox.name = argsValue;
@@ -504,6 +567,13 @@ public class Ssurgeon  {
         case UPDATE_MORPHO_FEATURES:
         case UPDATE_MORPHO_FEATURES_LOWER:
           argsBox.updateMorphoFeatures = argsValue;
+          break;
+        case REMOVE:
+          argsBox.remove.add(argsValue);
+          break;
+        case REMOVE_MORPHO_FEATURES:
+        case REMOVE_MORPHO_FEATURES_LOWER:
+          argsBox.removeMorphoFeatures.add(argsValue);
           break;
         default:
           String key = argsKey.substring(1);
@@ -570,7 +640,7 @@ public class Ssurgeon  {
         if (argsBox.nodes.size() != 1) {
           throw new SsurgeonParseException("Cannot make an EditNode out of " + argsBox.nodes.size() + " nodes.  Please use exactly one -node");
         }
-        return new EditNode(argsBox.nodes.get(0), argsBox.annotations, argsBox.updateMorphoFeatures);
+        return new EditNode(argsBox.nodes.get(0), argsBox.annotations, argsBox.updateMorphoFeatures, argsBox.remove, argsBox.removeMorphoFeatures);
       } else if (command.equalsIgnoreCase(Lemmatize.LABEL)) {
         if (argsBox.nodes.size() != 1) {
           throw new SsurgeonParseException("Cannot make a Lemmatize out of " + argsBox.nodes.size() + " nodes.  Please use exactly one -node");
@@ -602,6 +672,21 @@ public class Ssurgeon  {
         return new KillAllIncomingEdges(argsBox.nodes.get(0));
       } else if (command.equalsIgnoreCase(CombineMWT.LABEL)) {
         return new CombineMWT(argsBox.nodes, argsBox.annotations.get("word"));
+      } else if (command.equalsIgnoreCase(SetPhraseHead.LABEL)) {
+        GrammaticalRelation reln = GrammaticalRelation.valueOf(language, argsBox.reln);
+        return new SetPhraseHead(argsBox.nodes, argsBox.headIndex, reln, argsBox.weight);
+      } else if (command.equalsIgnoreCase(SplitWord.LABEL)) {
+        GrammaticalRelation reln = GrammaticalRelation.valueOf(language, argsBox.reln);
+        if (argsBox.regex.size() > 0 && argsBox.exact.size() > 0) {
+          throw new SsurgeonParseException("Found both regex and exact in the splits for splitWord");
+        }
+        if (argsBox.regex.size() > 0) {
+          return new SplitWord(argsBox.nodes.get(0), argsBox.regex, argsBox.headIndex, reln, argsBox.name, false);
+        } else {
+          return new SplitWord(argsBox.nodes.get(0), argsBox.exact, argsBox.headIndex, reln, argsBox.name, true);
+        }
+      } else if (command.equalsIgnoreCase(ReindexGraph.LABEL)) {
+        return new ReindexGraph();
       }
       throw new SsurgeonParseException("Error in SsurgeonEdit.parseEditLine: command '"+command+"' is not supported");
     } catch (SsurgeonParseException e) {

@@ -168,6 +168,16 @@ public class EnglishPTBTreebankCorrector implements TreeTransformer, TreebankTra
     "adjoin (NP NN@) newnp\n" +
             '\n') +
 
+    // Fix not_RB only_JJ, which should generally be not_RB only_RB
+    // and put it under a CONJP instead of an ADVP
+    ("ADVP|CONJP <1 (__ < /^(?i:not)$/) <2 (JJ=bad < only|just|merely|even) !<3 __\n" +
+     "relabel bad RB\n" +
+     '\n') +
+
+    ("ADVP=bad <1 (__ < /^(?i:not)$/) <2 (RB < only|just|merely|even) !<3 __\n" +
+     "relabel bad CONJP\n" +
+     '\n') +
+
     // Fix some cases of 'as well as' not made into a CONJP unit
     // There are a few other weird cases that should also be reviewed with the tregex
     // well|Well|WELL , as|AS|As . as|AS|As !>(__ > @CONJP)
@@ -1166,6 +1176,15 @@ public class EnglishPTBTreebankCorrector implements TreeTransformer, TreebankTra
 
     "") +
 
+    // for structures such as "over a year", "about a decade", etc
+    ("NP < (QP <1 IN=bad <2 (DT !$+ __) $+ /^N/)\n" +
+     "relabel bad RB\n" +
+     "\n") +
+
+    // for structures such as "just over a decade"
+    ("NP < (QP <1 (RB < just) <2 IN=bad <3 (DT !$+ __) $+ /^N/)\n" +
+     "relabel bad RB\n" +
+     "\n") +
 
     ("@QP < (IN|JJ|RBR|RP=bad < about)\n" +
     "relabel bad RB\n" +
@@ -1221,6 +1240,10 @@ public class EnglishPTBTreebankCorrector implements TreeTransformer, TreebankTra
     "relabel bad VBN\n" +
             '\n') +
 
+    // First, second, third are treated as LS in PTB
+    // but in UD EWT, GUM, etc they are treated as RB
+    ("@ADVP <: LS=bad\n" +
+     "relabel bad RB\n\n") +
 
     ("@SBAR < (DT|WDT|NN|NNP|RB=bad < that|because|while|Though|Whether)\n" +
     "relabel bad IN\n" +

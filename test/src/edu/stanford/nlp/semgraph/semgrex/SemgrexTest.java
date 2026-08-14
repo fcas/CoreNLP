@@ -3,15 +3,23 @@ package edu.stanford.nlp.semgraph.semgrex;
 import junit.framework.AssertionFailedError;
 import junit.framework.TestCase;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import edu.stanford.nlp.ling.CoreAnnotations;
 import edu.stanford.nlp.ling.IndexedWord;
 import edu.stanford.nlp.stats.IntCounter;
 import edu.stanford.nlp.trees.UniversalEnglishGrammaticalRelations;
 import edu.stanford.nlp.trees.Tree;
+import edu.stanford.nlp.trees.ud.CoNLLUFeatures;
+import edu.stanford.nlp.util.ArrayCoreMap;
+import edu.stanford.nlp.util.CoreMap;
+import edu.stanford.nlp.util.Pair;
 import edu.stanford.nlp.semgraph.SemanticGraph;
+import edu.stanford.nlp.semgraph.SemanticGraphCoreAnnotations;
 import edu.stanford.nlp.semgraph.SemanticGraphEdge;
 import edu.stanford.nlp.semgraph.SemanticGraphFactory;
 
@@ -116,6 +124,18 @@ public class SemgrexTest extends TestCase {
             "ate", "ate", "muffins");
   }
 
+  public void testConnected() {
+    // the root should connect to all its children
+    runTest("{} <> {word:ate}", "[ate subj>Bill obj>[muffins compound>blueberry]]",
+            "Bill", "muffins");
+    // a node in the middle should connect to both its children and its parent
+    runTest("{} <> {word:muffins}", "[ate subj>Bill obj>[muffins compound>blueberry]]",
+            "ate", "blueberry");
+    // a leaf should connect to its parent
+    runTest("{} <> {word:blueberry}", "[ate subj>Bill obj>[muffins compound>blueberry]]",
+            "muffins");
+  }
+
   public void testMultipleAttributes() {
     runTest("{} >> {word:Bill}",
             "[ate subj>Bill/NNP obj>[muffins compound>blueberry]]",
@@ -213,6 +233,160 @@ public class SemgrexTest extends TestCase {
 
     runTest("{word:/.*il.*/}", "[ate subj>Bill obj>[muffins compound>blueberry]]",
             "Bill");
+  }
+
+  public void testNegatedRegex() {
+    runTest("{word!:/Bill/}", "[ate subj>Bill obj>[muffins compound>blueberry]]",
+            "ate", "blueberry", "muffins");
+    runTest("{word!:/.*i.*/}", "[ate subj>Bill obj>[muffins compound>blueberry]]",
+            "ate", "blueberry");
+  }
+
+  public void testBrokenContainsExpression() {
+    try {
+      // word is a String, not a Map, so this should throw a parse exception
+      SemgrexPattern pattern = SemgrexPattern.compile("{word:{foo:bar}}");
+      throw new AssertionError("Expected a SemgrexParseException");
+    } catch (SemgrexParseException e) {
+      // good
+    }
+
+    // this one should work.  we run it here to verify the test was
+    // valid, as opposed to getting a SemgrexParseException because
+    // this wasn't even following proper contains syntax
+    SemgrexPattern pattern = SemgrexPattern.compile("{morphofeatures:{foo:bar}}");
+  }
+
+  public void testContainsExpression() {
+    // morphofeatures is a Map, so this should work
+    SemgrexPattern pattern = SemgrexPattern.compile("{morphofeatures:{foo:bar}}");
+    SemanticGraph graph = makeComplicatedGraph();
+    Set<IndexedWord> vertices = graph.vertexSet();
+    for (IndexedWord iw : vertices) {
+      if (iw.value().equals("D") || iw.value().equals("F")) {
+        CoNLLUFeatures feats = new CoNLLUFeatures();
+        feats.put("foo", "bar");
+        iw.set(CoreAnnotations.CoNLLUFeats.class, feats);
+      }
+    }
+    runTest(pattern, graph, "D", "F");
+  }
+
+  public void testContainsRegexKeyExpression() {
+    // morphofeatures is a Map, so this should work
+    SemgrexPattern pattern = SemgrexPattern.compile("{morphofeatures:{/foo/:bar}}");
+    SemanticGraph graph = makeComplicatedGraph();
+    Set<IndexedWord> vertices = graph.vertexSet();
+    for (IndexedWord iw : vertices) {
+      if (iw.value().equals("D") || iw.value().equals("F")) {
+        CoNLLUFeatures feats = new CoNLLUFeatures();
+        feats.put("foo", "bar");
+        iw.set(CoreAnnotations.CoNLLUFeats.class, feats);
+      }
+    }
+    runTest(pattern, graph, "D", "F");
+  }
+
+  public void testContainsRegexKeyPartialMatchExpression() {
+    // morphofeatures is a Map, so this should work
+    SemgrexPattern pattern = SemgrexPattern.compile("{morphofeatures:{/.*o.*/:bar}}");
+    SemanticGraph graph = makeComplicatedGraph();
+    Set<IndexedWord> vertices = graph.vertexSet();
+    for (IndexedWord iw : vertices) {
+      if (iw.value().equals("D") || iw.value().equals("F")) {
+        CoNLLUFeatures feats = new CoNLLUFeatures();
+        feats.put("foo", "bar");
+        iw.set(CoreAnnotations.CoNLLUFeats.class, feats);
+      }
+    }
+    runTest(pattern, graph, "D", "F");
+  }
+
+  public void testContainsRegexKeyMultipleMatchExpression() {
+    // morphofeatures is a Map, so this should work
+    SemgrexPattern pattern = SemgrexPattern.compile("{morphofeatures:{/.*o.*/:bar}}");
+    SemanticGraph graph = makeComplicatedGraph();
+    Set<IndexedWord> vertices = graph.vertexSet();
+    for (IndexedWord iw : vertices) {
+      if (iw.value().equals("D") || iw.value().equals("F")) {
+        CoNLLUFeatures feats = new CoNLLUFeatures();
+        feats.put("zoo", "car");
+        feats.put("foo", "bar");
+        iw.set(CoreAnnotations.CoNLLUFeats.class, feats);
+      }
+      if (iw.value().equals("C") || iw.value().equals("E")) {
+        CoNLLUFeatures feats = new CoNLLUFeatures();
+        feats.put("zoo", "car");
+        iw.set(CoreAnnotations.CoNLLUFeats.class, feats);
+      }
+    }
+    runTest(pattern, graph, "D", "F");
+  }
+
+  public void testContainsRegexKeyNegatedMatchExpression() {
+    // morphofeatures is a Map, so this should work
+    SemgrexPattern pattern = SemgrexPattern.compile("{morphofeatures:{/.*o.*/!:bar}}");
+    SemanticGraph graph = makeComplicatedGraph();
+    Set<IndexedWord> vertices = graph.vertexSet();
+    for (IndexedWord iw : vertices) {
+      if (iw.value().equals("D") || iw.value().equals("F")) {
+        CoNLLUFeatures feats = new CoNLLUFeatures();
+        feats.put("zoo", "car");
+        feats.put("foo", "bar");
+        iw.set(CoreAnnotations.CoNLLUFeats.class, feats);
+      }
+      if (iw.value().equals("C") || iw.value().equals("E")) {
+        CoNLLUFeatures feats = new CoNLLUFeatures();
+        feats.put("zoo", "car");
+        iw.set(CoreAnnotations.CoNLLUFeats.class, feats);
+      }
+    }
+    runTest(pattern, graph, "A", "B", "C", "E", "G", "H", "I", "J");
+  }
+
+  public void testContainsRegexExpression() {
+    // morphofeatures is a Map, so this should work
+    SemanticGraph graph = makeComplicatedGraph();
+    Set<IndexedWord> vertices = graph.vertexSet();
+    for (IndexedWord iw : vertices) {
+      if (iw.value().equals("B") || iw.value().equals("D") || iw.value().equals("F")) {
+        CoNLLUFeatures feats = new CoNLLUFeatures();
+        feats.put("foo", "bar" + iw.value());
+        iw.set(CoreAnnotations.CoNLLUFeats.class, feats);
+      }
+    }
+
+    // test a positive regex
+    SemgrexPattern pattern = SemgrexPattern.compile("{morphofeatures:{foo:/bar[BD]/}}");
+    runTest(pattern, graph, "B", "D");
+
+    // test a negative regex
+    // should match both the ones that don't have features
+    // and the ones that have a non-matching feature
+    pattern = SemgrexPattern.compile("{morphofeatures:{foo!:/bar[BD]/}}");
+    runTest(pattern, graph, "A", "C", "E", "F", "G", "H", "I", "J");
+  }
+
+  public void testDoubleContainsExpression() {
+    // morphofeatures is a Map, so this should work
+    SemanticGraph graph = makeComplicatedGraph();
+    Set<IndexedWord> vertices = graph.vertexSet();
+    for (IndexedWord iw : vertices) {
+      if (iw.value().equals("B") || iw.value().equals("D") || iw.value().equals("F")) {
+        CoNLLUFeatures feats = new CoNLLUFeatures();
+        feats.put("foo", "bar");
+        feats.put("name", iw.value());
+        iw.set(CoreAnnotations.CoNLLUFeats.class, feats);
+      }
+    }
+
+    // test a positive regex
+    SemgrexPattern pattern = SemgrexPattern.compile("{morphofeatures:{foo:/bar/;name:/[BD]/}}");
+    runTest(pattern, graph, "B", "D");
+
+    // test one positive, one negative regex
+    pattern = SemgrexPattern.compile("{morphofeatures:{foo:/bar/;name!:/[BD]/}}");
+    runTest(pattern, graph, "F");
   }
 
   public void testReferencedRegex() {
@@ -413,6 +587,22 @@ public class SemgrexTest extends TestCase {
     runTest("{} 4,4<< {word:A}", graph, "H", "I");
     runTest("{} 5,5<< {word:A}", graph, "J");
     runTest("{} 6,6<< {word:A}", graph, "I");
+  }
+
+  /** After making UNIQ a separate token in the parser, we should verify that "uniq" can be treated as an identifier as well */
+  public void testUniqNamedNode() {
+    SemanticGraph graph = makeComplicatedGraph();
+
+    runTest("{} >obj ({} >expl {})", graph, "A");
+
+    SemgrexPattern pattern =
+      SemgrexPattern.compile("{} >obj ({} >expl {}=uniq)");
+    SemgrexMatcher matcher = pattern.matcher(graph);
+    assertTrue(matcher.find());
+    assertEquals(1, matcher.getNodeNames().size());
+    assertEquals("E", matcher.getNode("uniq").toString());
+    assertEquals("A", matcher.getMatch().toString());
+    assertFalse(matcher.find());
   }
 
   public void testNamedNode() {
@@ -1128,6 +1318,34 @@ public class SemgrexTest extends TestCase {
     }
   }
 
+  public void testDuplicateConstraints() {
+    // There should be an exception if the same attribute shows up
+    // twice as a positive attribute
+    // Although it isn't clear that's necessary,
+    // since both portions could be regex which match different things
+    try {
+      String pattern = "{word:foo;word:bar}";
+      SemgrexPattern semgrex = SemgrexPattern.compile(pattern);
+      throw new RuntimeException("This expression is now illegal");
+    } catch (SemgrexParseException e) {
+      // yay
+    }
+
+    // this should parse since negative constraints which
+    // match positive constraints are allowed
+    String pattern = "{word:/.*i.*/;word!:/.*m.*/}";
+    SemgrexPattern semgrex = SemgrexPattern.compile(pattern);
+    runTest(pattern,
+            "[ate/NN subj>Bill/NN obj>[muffins compound>blueberry]]",
+            "Bill/NN");
+
+    pattern = "{word:/.*i.*/;word!:/.*z.*/}";
+    semgrex = SemgrexPattern.compile(pattern);
+    runTest(pattern,
+            "[ate/NN subj>Bill/NN obj>[muffins compound>blueberry]]",
+            "Bill/NN", "muffins");
+  }
+
   public void testAdjacent() {
     // test using a colon expression so that the targeted nodes
     // are the nodes which show up
@@ -1244,6 +1462,122 @@ public class SemgrexTest extends TestCase {
             "ate/VBD");
     runTest(pattern,
             "[ate/VBD subj>Billz/NNP obj>[muffins compound>strawberry]]");
+  }
+
+  String[] BATCH_PARSES = {
+    "[foo-1 nmod> bar-2]",
+    "[foo-1 obj> bar-2]",
+    "[bar-1 compound> baz-2]",
+    "[foo-1 nmod> baz-2 obj> bar-3]",
+  };
+
+  /**
+   * Build a list of sentences with BasicDependenciesAnnotation
+   */
+  public List<CoreMap> buildSmallBatch() {
+    List<CoreMap> sentences = new ArrayList<>();
+    for (String parse : BATCH_PARSES) {
+      SemanticGraph graph = SemanticGraph.valueOf(parse);
+      CoreMap sentence = new ArrayCoreMap();
+      sentence.set(SemanticGraphCoreAnnotations.BasicDependenciesAnnotation.class, graph);
+      sentence.set(CoreAnnotations.TextAnnotation.class, parse);
+      sentences.add(sentence);
+    }
+    return sentences;
+  }
+
+  /**
+   * A simple test of the batch search - should return 3 of the 4 sentences
+   */
+  public void testBatchSearch() {
+    List<CoreMap> sentences = buildSmallBatch();
+    SemgrexPattern semgrex = SemgrexPattern.compile("{word:foo}=x > {}=y");
+    List<Pair<CoreMap, List<SemgrexMatch>>> matches = semgrex.matchSentences(sentences, false);
+    String[] expectedMatches = {
+      BATCH_PARSES[0],
+      BATCH_PARSES[1],
+      BATCH_PARSES[3],
+    };
+    int[] expectedCount = {1, 1, 2};
+    assertEquals(expectedMatches.length, matches.size());
+    for (int i = 0; i < expectedMatches.length; ++i) {
+      assertEquals(expectedMatches[i], matches.get(i).first().get(CoreAnnotations.TextAnnotation.class));
+      assertEquals(expectedCount[i], matches.get(i).second().size());
+    }
+  }
+
+  /**
+   * Test that an illegal uniq expression throws an exception
+   *<br>
+   * Specifically, the expectation is for a SemgrexParseException
+   */
+  public void testBrokenUniq() {
+    try {
+      String pattern = "{word:foo}=foo :: uniq bar";
+      SemgrexPattern semgrex = SemgrexPattern.compile(pattern);
+      throw new RuntimeException("This expression should fail because the node name is unknown");
+    } catch (SemgrexParseException e) {
+      // yay
+    }
+  }
+
+  /**
+   * Test that a simple uniq expression is correctly parsed
+   */
+  public void testParsesUniq() {
+    String pattern = "{word:foo}=foo :: uniq foo";
+    SemgrexPattern semgrex = SemgrexPattern.compile(pattern);
+  }
+
+  /**
+   * Test the uniq functionality on a few simple parses
+   */
+  public void testBatchUniq() {
+    List<CoreMap> sentences = buildSmallBatch();
+    SemgrexPattern semgrex = SemgrexPattern.compile("{word:foo}=x > {}=y :: uniq x");
+    List<Pair<CoreMap, List<SemgrexMatch>>> matches = semgrex.matchSentences(sentences, false);
+    // only the first foo sentence should match when using "uniq x"
+    assertEquals(1, matches.size());
+    assertEquals(BATCH_PARSES[0], matches.get(0).first().get(CoreAnnotations.TextAnnotation.class));
+    assertEquals(1, matches.get(0).second().size());
+
+    semgrex = SemgrexPattern.compile("{word:foo}=x > {}=y :: uniq");
+    matches = semgrex.matchSentences(sentences, false);
+    // same thing happens when using "uniq" and no nodes - only one match will occur
+    assertEquals(1, matches.size());
+    assertEquals(BATCH_PARSES[0], matches.get(0).first().get(CoreAnnotations.TextAnnotation.class));
+    assertEquals(1, matches.get(0).second().size());
+
+    semgrex = SemgrexPattern.compile("{word:foo}=x > {}=y :: uniq y");
+    matches = semgrex.matchSentences(sentences, false);
+    // now it should match both foo>bar and foo>baz
+    assertEquals(2, matches.size());
+    assertEquals(BATCH_PARSES[0], matches.get(0).first().get(CoreAnnotations.TextAnnotation.class));
+    assertEquals(1, matches.get(0).second().size());
+    assertEquals(BATCH_PARSES[3], matches.get(1).first().get(CoreAnnotations.TextAnnotation.class));
+    assertEquals(1, matches.get(1).second().size());
+
+    semgrex = SemgrexPattern.compile("{}=x > {}=y :: uniq x y");
+    matches = semgrex.matchSentences(sentences, false);
+    // now it should batch each of foo>bar, bar>baz, foo>baz
+    assertEquals(3, matches.size());
+    assertEquals(BATCH_PARSES[0], matches.get(0).first().get(CoreAnnotations.TextAnnotation.class));
+    assertEquals(1, matches.get(0).second().size());
+    assertEquals(BATCH_PARSES[2], matches.get(1).first().get(CoreAnnotations.TextAnnotation.class));
+    assertEquals(1, matches.get(1).second().size());
+    assertEquals(BATCH_PARSES[3], matches.get(2).first().get(CoreAnnotations.TextAnnotation.class));
+    assertEquals(1, matches.get(2).second().size());
+  }
+
+  public static void outputBatchResults(SemgrexPattern pattern, List<CoreMap> sentences) {
+    List<Pair<CoreMap, List<SemgrexMatch>>> matches = pattern.matchSentences(sentences, false);
+    for (Pair<CoreMap, List<SemgrexMatch>> sentenceMatch : matches) {
+      System.out.println("Pattern matched at:");
+      System.out.println(sentenceMatch.first());
+      for (SemgrexMatch match : sentenceMatch.second()) {
+        System.out.println(match);
+      }
+    }
   }
 
   public static void outputResults(String pattern, String graph,

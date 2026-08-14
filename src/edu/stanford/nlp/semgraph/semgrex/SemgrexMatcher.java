@@ -4,6 +4,7 @@ import edu.stanford.nlp.graph.CyclicGraphException;
 import edu.stanford.nlp.semgraph.SemanticGraph;
 import edu.stanford.nlp.semgraph.SemanticGraphEdge;
 import edu.stanford.nlp.ling.*;
+import edu.stanford.nlp.util.VariableStrings;
 import edu.stanford.nlp.util.logging.Redwood;
 
 import java.util.*;
@@ -58,7 +59,7 @@ public abstract class SemgrexMatcher  {
     this.namesToEdges = namesToEdges;
     this.variableStrings = variableStrings;
   }
-  
+
   SemgrexMatcher(SemanticGraph sg,
                  IndexedWord node,
                  Map<String, IndexedWord> namesToNodes,

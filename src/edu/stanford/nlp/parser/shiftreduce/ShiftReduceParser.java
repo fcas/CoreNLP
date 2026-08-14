@@ -534,7 +534,10 @@ public class ShiftReduceParser extends ParserGrammar implements Serializable  {
     if (op.testOptions.preTag) {
       Timing retagTimer = new Timing();
       tagger = Tagger.loadModel(op.testOptions.taggerSerializedFile);
+      log.info("Retagging with tagger model: " + op.testOptions.taggerSerializedFile);
+      log.info("Known tags in the tagger model: " + tagger.tagSet());
       redoTags(binarizedTrees, tagger, nThreads);
+      log.info("Tags in training set: " + Trees.uniqueTags(binarizedTrees));
       retagTimer.done("Retagging");
     }
 
